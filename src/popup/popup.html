@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Speed Controller</title>
+    <link rel="stylesheet" href="../theme.css">
+    <link rel="stylesheet" href="popup.css">
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <!-- Header mark = miniature of the main 270° dial (same arc + needle
+                 + redline tick + hub), so badge and gauge read as one instrument. -->
+            <svg class="header__mark" width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
+                <!-- 270° dial arc, opening at the bottom -->
+                <path d="M6.34 19.66A8 8 0 1 1 17.66 19.66" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="butt"/>
+                <!-- redline tick just outside the overdrive (upper-right) end -->
+                <path d="M18.4 7.6l1.8-1.8" stroke="var(--status-error, #cf222e)" stroke-width="2" stroke-linecap="round"/>
+                <!-- needle pointing into the overdrive zone (~up-right) -->
+                <path d="M12 14L16 9" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round"/>
+                <circle cx="12" cy="14" r="1.7" fill="var(--primary-color)" stroke="var(--surface)" stroke-width="0.75"/>
+            </svg>
+            <div class="header__brand">
+                <h1 id="popupTitle">TACH</h1>
+            </div>
+            <div class="header-actions">
+                <button id="openSettingsBtn" class="icon-btn" type="button" aria-label="Open settings" title="Settings">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="12" cy="12" r="3" />
+                        <path
+                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                </button>
+                <button id="closeSettingsBtn" class="icon-btn" type="button" aria-label="Back to controls" title="Back"
+                    hidden>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M19 12H5M12 19l-7-7 7-7" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div id="mainView">
+            <div class="speed-display">
+                <div class="speed-label">// Playback Rate</div>
+
+                <!-- Tachometer gauge: 180° arch (0.1x → 4.0x). The dial IS the
+                     analog input — drag it to set speed (role=slider, focusable). -->
+                <div class="gauge" id="gaugeWrap" role="slider" tabindex="0"
+                     aria-label="Playback rate" aria-valuemin="0.1" aria-valuemax="4"
+                     aria-valuenow="1" aria-valuetext="1.00x">
+                    <svg class="gauge__svg" viewBox="0 0 200 116" aria-hidden="true">
+                        <!-- base track: full 270° arc in --border -->
+                        <path class="gauge__track" id="gaugeTrack" d=""/>
+                        <!-- amethyst fill: 0.1 → min(value, 1.0) -->
+                        <path class="gauge__fill" id="gaugeFill" d=""/>
+                        <!-- rose redline: 1.0 → value (only visible when value > 1.0) -->
+                        <path class="gauge__redline" id="gaugeRedline" d=""/>
+                        <!-- 1.0x gate tick across the ring -->
+                        <line class="gauge__gate" id="gaugeGate" x1="0" y1="0" x2="0" y2="0"/>
+                        <!-- range end-cap labels -->
+                        <text class="gauge__caplabel" id="gaugeCapLo" x="0" y="0" text-anchor="middle">0.1</text>
+                        <text class="gauge__caplabel" id="gaugeCapHi" x="0" y="0" text-anchor="middle">4.0</text>
+                        <!-- needle from hub (baseline centre) straight up; rotated to value angle -->
+                        <line class="gauge__needle" id="gaugeNeedle" x1="100" y1="96" x2="100" y2="22"/>
+                        <circle class="gauge__hub" id="gaugeHub" cx="100" cy="96" r="5"/>
+                    </svg>
+                </div>
+
+                <!-- Readout flanked by −/+ : the dial is the analog input (drag it);
+                     the buttons make fine 0.05-grid steps. Merged into one row to
+                     reclaim the vertical space the slider used to take. -->
+                <div class="speed-controls">
+                    <button id="decreaseSpeed" class="btn btn-outline" aria-label="Decrease speed">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M20 12H4" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        </svg>
+                    </button>
+
+                    <div class="gauge__readout">
+                        <span class="gauge__tag" id="gaugeTag">// OVERDRIVE</span>
+                        <span class="speed-value" id="currentSpeed">1.00x</span>
+                    </div>
+
+                    <button id="increaseSpeed" class="btn btn-outline" aria-label="Increase speed">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12 4V20M20 12H4" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Hidden state holder: many handlers read speedSlider.value as the
+                     current speed, and the persist/keyboard model is built on it. The
+                     dial drag + buttons write to it; it stays in the DOM (hidden) so
+                     that logic is untouched. -->
+                <input type="range" id="speedSlider" class="speed-slider" min="0.01" max="4.00"
+                    step="0.01" value="1.00" hidden aria-hidden="true" tabindex="-1">
+
+                <div class="preset-speeds">
+                </div>
+            </div>
+
+            <div class="speed-buttons">
+                <button id="resetBtn" class="btn btn-outline">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+                        <polyline points="1 4 1 10 7 10" />
+                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                    </svg>
+                    [ RESET ]
+                </button>
+                <button id="fasterBtn" class="btn btn-primary">
+                    <!-- Lucide 'gauge': dome arc + needle pinned up-right (redline zone) -->
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M3.34 19a10 10 0 1 1 17.32 0" />
+                        <path d="m12 14 4-4" />
+                    </svg>
+                    [ REDLINE ]
+                </button>
+            </div>
+
+            <div class="remember-site">
+                <label class="remember-site__label" for="rememberSiteToggle">
+                    <span class="remember-site__text">
+                        Remember rate for
+                        <span id="rememberSiteDomain" class="remember-site__domain">this site</span>
+                    </span>
+                    <span class="remember-site__switch">
+                        <input type="checkbox" id="rememberSiteToggle" class="remember-site__input"
+                            aria-label="Remember playback speed for this site">
+                        <span class="remember-site__slider" aria-hidden="true"></span>
+                    </span>
+                </label>
+            </div>
+
+            <div class="transcript">
+                <div class="transcript__row">
+                    <button id="copyTranscriptBtn" class="btn btn-primary transcript__btn" hidden>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path
+                                d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2"
+                                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        Copy Transcript
+                    </button>
+                    <label id="includeTimestampsLabel" class="transcript__chip"
+                        title="Include timestamps in the copied transcript" hidden>
+                        <input type="checkbox" id="includeTimestampsToggle" class="transcript__chip-input"
+                            aria-label="Include timestamps">
+                        <span class="transcript__chip-face" aria-hidden="true">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                                xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="12" cy="12" r="9" />
+                                <path d="M12 7v5l3 2" />
+                            </svg>
+                        </span>
+                    </label>
+                </div>
+                <div id="transcriptStatus" class="transcript__status" role="status" aria-live="polite"></div>
+            </div>
+
+        </div><!-- /#mainView -->
+
+        <div id="settingsView" hidden>
+            <iframe id="settingsFrame" title="Tach settings"></iframe>
+        </div>
+    </div>
+
+    <script src="../constants.js"></script>
+    <script src="popup.js"></script>
+</body>
+
+</html>

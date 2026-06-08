@@ -1,0 +1,25 @@
+{
+  "name": "domdhi-tach",
+  "version": "1.0.0",
+  "description": "Tach — a lightweight Chromium extension that sets a default HTML5 video playback speed on every site and offers quick manual control.",
+  "main": "src/background.js",
+  "scripts": {
+    "test": "jest --verbose",
+    "e2e": "playwright test",
+    "e2e:headless": "HEADLESS=1 playwright test",
+    "package": "node package-extension.js",
+    "deploy": "bash deploy.sh",
+    "publish:dry": "node tools/publish.js _Domdhi.Tach --dry-run --prune",
+    "publish:public": "node tools/publish.js _Domdhi.Tach --prune",
+    "publish:release": "node tools/publish.js _Domdhi.Tach --prune --commit"
+  },
+  "keywords": ["chrome-extension", "video-speed", "playback-speed", "html5-video", "tach"],
+  "author": "Domdhi",
+  "license": "MIT",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "jest": "^30.3.0",
+    "jest-environment-jsdom": "^30.3.0"
+  }
+}

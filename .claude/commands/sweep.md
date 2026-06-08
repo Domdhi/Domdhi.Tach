@@ -1,0 +1,244 @@
+---
+description: Autonomous post-work maintenance sweep — code review → retro (+ doc-drift check) → implement recommendations → promote → optimize agents → defrag → health (memory + .claude/ templates audit) → timeline refresh. One command, auto-approved, report at end.
+argument-hint: "[PR range / epic names — e.g. '109-128' or 'Auth,Billing,Search'] [--review-scope high-risk|systemic|all] [--gated] [--skip 1,4]"
+---
+
+# Maintenance Sweep
+
+Run the **entire post-work maintenance lifecycle** as one autonomous, auto-approved pass. This is the orchestrator for what are otherwise ten separate interactive commands (`/review:code-review`, `/review:check-sync`, `/review:retro`, `/review:promote-memories`, `/review:optimize-agents`, `/review:evolve-skills`, `/review:memory-defrag`, `/review:memory-health`, `/review:check-templates`, `/review:timeline`).
+
+Use it after cranking out a batch of work (a string of merged PRs, a finished epic, a sprint) when you want the system to review, learn, propagate the learnings, re-align the agents, and clean up — without babysitting per-proposal Accept/Reject prompts.
+
+## Telemetry (run first)
+
+This command is user-typed, so it does not fire `PostToolUse:Skill` — without this it leaves no `command_invocation` row and fleet analytics under-count human-driven runs. Self-log the invocation before anything else (best-effort — if it fails, continue regardless):
+
+```bash
+node .claude/core/telemetry-log.js sweep
+```
+
+## The Ordering Rule (why this order, and why defrag is LAST)
+
+```
+1. Code review      → findings feed the retro
+2. Retro (+check-sync) → work + review findings + doc drift → Recommendations + System Improvements
+3. Implement recs   → auto-apply agent/skill/command fixes + doc-drift fixes + write new memories  ← creates the pile
+4. Promote          → auto-promote above-threshold concepts → skills / CLAUDE.md
+5. Optimize agents  → re-align agents with codebase + new memories + retro findings
+   5b. Evolve skills → propose skill CREATE/IMPROVE from this run's signals (PROPOSE-ONLY)  ← self-improvement
+6. Defrag           → LAST memory op: merge/clean the now-GROWN store              ← the cleanup
+7. Health & integrity → verify: memory lint/decay + check-templates (.claude/ wiring) + timeline refresh
+```
+
+**Why these three fold in here.** `check-sync` (doc drift) runs *inside* the retro (Phase 2) because its findings are retro input and its fixes are Phase-3 work. `check-templates` (`.claude/` structural audit — orphaned agents, unused skills, broken wiring, skill-conformance) runs in Phase 7 *after* Phases 3 & 5 have edited agents/skills/commands, so it validates the sweep's own edits left nothing dangling. `timeline` regeneration is pure end-of-run housekeeping — it just reflects the commits the sweep itself made.
+
+**Defrag runs last on purpose.** Steps 2–5 spawn a pile of new memories. Defragging *before* that pile lands gets invalidated the moment the new memories are written — you'd have to defrag twice. Defrag is the *final cleanup pass* over the grown store, not the opener.
+
+**The cap is handled by staging, not by defragging early.** Each category has a hard cap of `MEMORY_MAX_PER_CATEGORY` (default **50**, in `constants.js`); `createMemory` refuses writes at the cap and auto-prunes stale entries at 80% (40). Steps 2–3 do NOT force-write into a near-cap category — new memories **stage into the inbox** (`memory-manager.js create` when the category is below ~80%; otherwise queue a draft via the inbox). The step-6 defrag then processes the inbox (`inbox-promote`) *and* merges overlaps in one pass, so everything lands under the cap. This is what makes "defrag at the end" actually work instead of hitting a wall at step 3.
+
+## Autonomy Contract (read this — it overrides the sub-commands)
+
+> **Everything is auto-approved.** This command does NOT stop for per-proposal Accept/Reject prompts. The interactive gates in `/review:promote-memories` (per-candidate) and `/review:memory-defrag` (per-proposal) are **suspended** — the sweep auto-applies every proposal that clears its threshold and logs what it did. The user reviews the *result* (the final report + the per-phase commits), not each step.
+>
+> Exceptions that still halt the sweep:
+> - A phase agent reports a CRITICAL finding that would corrupt the store (e.g., a merge that loses an evidence anchor) → skip that one operation, log it, continue.
+> - A build/test gate fails after an auto-applied code change in Step 3 → **stop, report, leave the rest unrun.**
+> - The user passed `--gated` (see Variables) → pause between phases.
+
+## Execution Notes (generic hardening — apply regardless of stack)
+
+- **CWD discipline.** The Bash tool persists working directory across calls — a single `cd` into a subdir silently breaks later `node .claude/core/*` and `git` calls (module-not-found / pathspec). Run every phase command from the repo root: use **absolute or repo-root-relative script paths** and `git -C <repo-root>`, and never leave the shell parked in a subdir.
+- **`doc-writer` and review agents have NO Bash.** Gather all per-epic git stats (commit count, files, +/-, date range) in the main agent and pass them INLINE in the Phase 2 dispatch prompt. The orchestrator (main agent) owns all git/gate/node calls.
+- **Promote (Phase 4): cohesive-cluster-first.** When the auto-threshold matches many candidates, promote the largest *cohesive* cluster (same skill/home) as one block; defer *scattered singletons* — especially ones already represented in ADRs/CLAUDE.md — to manual review. Don't scatter single-line edits across many files unattended.
+- **Defrag (Phase 6) relieves the hard cap, not necessarily the soft warning.** `memory-guard.cjs` warns at ≥80% of the cap (40 of 50). A handful of merges clears the *hard cap* (writes work again) but may not clear the warning — that needs a deeper consolidation pass. Phase 7 success = "hard cap relieved + new memories landed," NOT "lint score fully restored."
+- **Squash-merge branch check.** `git merge-base --is-ancestor` is fooled by squash-merges (a content-merged commit looks unique by hash). Use `git cherry -v origin/main HEAD` to detect already-upstream commits before branching or cherry-picking.
+- **Generated/vendored code.** Tell every reviewer to skip generated artifacts (lockfiles, `dist/`, `*.min.*`, migration scaffolding, snapshots) — sanity-check *intent* only, don't review generated line volume.
+
+## Variables
+
+INPUT: $ARGUMENTS — optional scope hint. Two forms:
+- A **PR range** (`109-128`) → resolve to merge commits via `git log --oneline main`, classify into themes for code review, infer epics for retro.
+- A **comma-separated epic list** (`Auth,Billing,Search`) → run a retro per epic; derive the code-review scope from each epic's PRs.
+- **Empty** → sweep the most recent completed epic (per `docs/todo/_backlog.md`) + the commits since the last sweep marker.
+
+**Flags:**
+- `--review-scope <high-risk|systemic|all>` — code-review depth (default: `high-risk` — security/auth/data-integrity changes only; cheapest high-ROI on already-merged code).
+- `--gated` — auto-apply *within* each phase but pause between phases so you can bail early. Default is fully autonomous, no pauses.
+- `--single-commit` — squash all phase work into one commit at the end instead of per-phase commits.
+- `--skip <phases>` — comma-separated phase numbers to skip (e.g. `--skip 1` to skip code review).
+
+## Pre-flight
+
+1. **Confirm code exists** (this is a post-implementation command): `Glob: src/**/*` (or the project's source root) must return results. If the project is still tech-agnostic/unspecialized → stop, suggest `/review:specialize` first.
+2. **Capture the start state** for the final report:
+   ```bash
+   node .claude/core/memory-manager.js report | grep -E '"total_memories"|"count"'
+   node .claude/core/memory-manager.js lint | grep '"score"'
+   ```
+   Record `total_memories`, per-category counts, and `lint` score as the BEFORE numbers.
+3. **Resolve scope** from INPUT (PR range → themes + epics, or epic list → epics).
+4. **Compute the run stamp once** — `date +%y%m%d-%H%M` (e.g. `260606-1642`) — and reuse this SAME `{YYMMDD-HHMM}` for **every** artifact this sweep writes (the plan, each phase's report, the final report) so one run's files sort together and a same-day re-run never clobbers a prior run. **Resuming a dead sweep:** if a `*-sweep.md` from today already exists with an incomplete Phase Log, reuse ITS stamp (the most recent one) instead of minting a new one, so you append to the same plan. Then **write the sweep plan** to `docs/.output/reviews/{YYMMDD-HHMM}-sweep.md` with a `## Phase Log` section. This is the durable artifact — if the session dies mid-sweep, the plan + completed-phase markers survive and the sweep is resumable (skip phases already marked `[x]` in the Phase Log).
+
+---
+
+## Phase 1 — Code Review
+
+Reuses the `/review:code-review` methodology, but **dispatches reviewers in parallel by theme** and auto-consolidates (no interactive verdict step).
+
+1. Classify the in-scope PRs/commits into themes (e.g. auth, data, API, UI, infra/CI). **Skip pure-infra/CI and doc-only changes** unless `--review-scope all`.
+2. **Tell every reviewer to ignore generated/vendored code** (lockfiles, `dist/`, minified bundles, migration scaffolding/snapshots) — sanity-check intent only.
+3. Dispatch one `code-reviewer` agent per theme, in parallel (background OK). Omit the `model:` param so each runs on the **Sonnet floor** (code-reviewer's default — sweep is broad maintenance, not a high-stakes gate). Escalate a specific theme to `model: opus` only if it touches a HIGH-risk-tier path (security, auth, data-integrity, migrations). Each gets the merge commits, diffs via `git diff <hash>^1 <hash>` (fallback `^2`), and returns a CRITICAL/MAJOR/MINOR/NIT findings table. They auto-load the `code-review` skill — do not paste the rubric.
+4. Consolidate all findings into `docs/.output/reviews/{YYMMDD-HHMM}-code-review.md`.
+5. Commit (unless `--single-commit`) per the convention below: `docs: /sweep p1 — code review, {N} findings ({C}C/{M}M/{m}m)`.
+6. Append the findings summary to the sweep plan's Phase Log — **the retro consumes this.**
+
+## Phase 2 — Retro
+
+Reuses `/review:retro`. One retro per epic in scope (or one consolidated retro if INPUT was a single PR range with no clear epic split).
+
+1. Gather data IN THE MAIN AGENT (agents have no Bash): git stats for the epic's commits, TODO Execution Log, work-doc plans, telemetry (`docs/.output/telemetry/command-usage.jsonl` if present), **and the Phase 1 code-review findings**.
+2. Run `/review:check-sync` for doc drift; capture findings.
+3. Dispatch `doc-writer` (per the retro template) to write `docs/.output/reviews/retro-{epic-slug}.md`. **Include the output-boundary instruction verbatim** ("Your ONLY output is the retro markdown… Do NOT write memories…") — the main agent owns memory extraction in Phase 3.
+4. Commit each retro: `docs: /sweep p2 — retro {epic}`.
+5. Append each retro's `## Recommendations` and `## System Improvements` tables to the Phase Log — **Phase 3 implements these.**
+
+## Phase 3 — Implement Recommendations
+
+Auto-apply the retro's concrete outputs. This is the step that turns a retro from a document into changes.
+
+1. **Memory extraction** — for every reusable pattern the retro surfaced and every learning in the code-review findings worth keeping:
+   - If the target category is **below ~80% of cap**: `node .claude/core/memory-manager.js create <category> <id> '<content-json>'`. Assign an `importance` (1–5) in the content per the `session-handoff` skill.
+   - If the target category is **at/near cap (≥ 40 of the 50 default)**: **stage a draft to the inbox** (`docs/.output/memories/_inbox/`) instead — do NOT force the write. The Phase 6 defrag frees room and promotes from the inbox. Record the staged item in the Phase Log.
+2. **System Improvements** — for each row in the retro's `## System Improvements` table:
+   - `Agent: …` → edit the named `.claude/agents/*.md` (surgical fix from the retro; broad re-alignment is Phase 5's job — don't duplicate).
+   - `Skill: …` → edit the named `.claude/skills/*/SKILL.md`.
+   - `Command: …` → edit the named `.claude/commands/**/*.md`.
+   - `Memory: …` → create/boost the memory (cap rule above).
+3. **Code-review MAJOR/CRITICAL fixes** — if a finding is a real bug (not a style nit) AND the fix is ≤5 files, dispatch a `general-purpose` agent to fix it, then **the orchestrator runs the gate** (`node .claude/core/gate.js test` — auto-detects the stack). Agents never build/test. If the gate fails → **stop the sweep, report.** MINOR/NIT findings are logged for the user, not auto-fixed (avoid churn on stable code).
+4. Commit: `feat: /sweep p3 — applied {N} retro recs, {M} memories staged, {K} fixes`.
+
+> **Phase 3 ↔ Phase 5 boundary:** Phase 3 applies the retro's *specific, named* improvements (surgical). Phase 5 does the *broad, systematic* codebase→agent re-alignment + proven-pattern injection. They are complementary; do not redo Phase 3's edits in Phase 5.
+
+## Phase 4 — Promote Memories
+
+Reuses `/review:promote-memories` in **auto-approve** mode.
+
+1. `node .claude/core/memory-promoter.js scan --top 15`.
+2. For each candidate with **promotion score ≥ 0.9 AND decayed confidence ≥ 0.7** (the auto-promote threshold — high bar, since this writes into skills/CLAUDE.md unattended): apply the promotion to its suggested target (decisions→CLAUDE.md, patterns→relevant SKILL.md, constraints→`_project-architecture.md`/template, workflows→agent frontmatter), then `node .claude/core/memory-promoter.js mark <slug> <target>`.
+3. Candidates **below** the auto-threshold are listed in the report as "manual-review promotion candidates" — surfaced, not applied.
+4. Commit: `docs: /sweep p4 — promoted {N} concepts`.
+
+## Phase 5 — Optimize Agents
+
+Reuses `/review:optimize-agents --fix`.
+
+1. Dispatch `architect` to scan the actual codebase → detected stack + structure map.
+2. Compare against each `.claude/agents/*.md` `## Project Context`; classify CURRENT / DRIFTED / MISSING.
+3. Inject proven patterns (confidence ≥ 0.7) + this sweep's retro findings + the day-scoped `docs/.output/agent-updates/{date}.md` issues into DRIFTED/MISSING agents (idempotent replace).
+4. Dispatch `code-reviewer` for the skill-effectiveness audit (ACTIVE / NOT_USED / gaps).
+5. Write `docs/.output/reviews/{YYMMDD-HHMM}-agent-optimization.md`.
+6. Commit: `docs: /sweep p5 — agent re-alignment ({N} agents updated)`.
+
+## Phase 5b — Evolve Skills (PROPOSE-ONLY)
+
+Reuses `/review:evolve-skills --auto`. Runs *after* Phase 5 (so it sees freshly-promoted memories + this run's agent re-alignment) and *before* Phase 7b (so the templates audit validates any staged change). This is the self-improving-skills step: it turns the same signals Phase 5 reads (agent-updates) plus the memory store into skill work.
+
+**Why propose-only inside the sweep.** Skill *bodies* are the system's own brain. Unlike memory promotion (Phase 4, which has a clean ≥0.9 auto-threshold), a skill rewrite or a brand-new skill has no safe unattended threshold — and the `skill-authoring` doctrine requires a positive **differential eval** to justify any change, which is an expensive multi-subagent run that shouldn't fire blind in a maintenance pass. So Phase 5b **stages proposals; it never applies them.**
+
+1. `node .claude/core/skill-evolution.js intake --date {YYYY-MM-DD}` → reads `intake.json`: IMPROVE candidates (agent-update misalignments attributed to a skill) + CREATE candidates (uncovered recurring memory clusters).
+2. For each candidate clearing the bar (IMPROVE: ≥1 attributed misalignment; CREATE: cluster size ≥3 OR avg confidence ≥0.8), the orchestrator (Opus) does the **reflective diagnosis** (what gap, what the skill should say) and drafts a candidate edit/new SKILL.md into the workspace under `docs/.output/skill-evolution/{date}/`, then conformance-gates it:
+   `node .claude/core/skill-evolution.js check <skill> <candidate>`.
+3. **Do NOT apply, do NOT run the full differential benchmark here** (that's the human-confirmed `/review:evolve-skills` standalone run). Record each staged proposal — skill, evidence, the candidate diff, conformance result — in `docs/.output/skill-evolution/{date}/proposals.md`.
+4. Commit the staging artifacts only: `docs: /sweep p5b — {N} skill-evolution proposals staged`.
+5. Surface the staged proposals under **"Still needs you"** in the final report — the user runs `/review:evolve-skills --apply <skill>` (which runs the differential) to accept any of them.
+
+## Phase 6 — Defrag (LAST)
+
+Reuses `/review:memory-defrag` in **auto-approve** mode — now operating on the GROWN store (new memories from Phases 2–3 included).
+
+1. **Process the inbox first**: `node .claude/core/memory-manager.js inbox-list`. For each staged item, decide its final category and `inbox-promote <id> [--category <cat>]`. If a target category is at cap, that item is resolved by the merges below.
+2. Dispatch a `general-purpose` analysis agent (read-only) to produce MERGE / SPLIT / CROSS-REF proposals over `docs/.output/memories/{decisions,patterns,constraints,workflows,rejected-approaches}/`. Prioritize MERGEs within near-cap categories. **If a prior defrag-analysis from this session already exists, reuse it** rather than re-dispatching.
+3. **Auto-apply every proposal** that preserves all evidence anchors (story IDs, commit hashes, file paths). Skip + log any merge that would drop an anchor.
+   - MERGE → `memory-manager.js update` primary (fold in duplicate's load-bearing fields) + `memory-manager.js delete <cat> <duplicate_id>`.
+   - SPLIT/MOVE → `create` new + `delete`/reduce source.
+   - CROSS-REF → append reciprocal `[[…]]` links to both.
+4. Write `docs/.output/reviews/{YYMMDD-HHMM}-memory-defrag.md` (plan + review log).
+5. Commit: `docs: /sweep p6 — defrag: {M} merges, {S} splits, {X} cross-refs ({before}→{after})`.
+
+## Phase 7 — Health & Integrity (verify + housekeeping)
+
+Reuses `/review:memory-health`, `/review:check-templates`, and `/review:timeline`. The memory + template checks are read-only verification of the sweep's own edits; the timeline refresh is the one write (committed).
+
+### 7a — Memory health (read-only)
+1. `node .claude/core/memory-manager.js lint` → confirm the **hard cap is relieved** (every category < 50 so writes work). NOTE: the category-balance warning persists while a category is ≥80% (40), so the lint score may stay below max — that is expected and is NOT a failure. Only flag it if a category is still AT the hard cap (50) or a deeper consolidation is warranted.
+2. `node .claude/core/memory-manager.js decay-report` → confirm no `decayed_confidence < 0.3` left unaddressed.
+3. If lint is below target or stale entries exist, note them in the report as residual follow-ups.
+
+### 7b — `.claude/` integrity (read-only — validates THIS sweep's edits)
+Phases 3 and 5 edited agents/skills/commands. Run the `check-templates` audit to confirm none of it left the system inconsistent:
+1. `node .claude/core/skill-conformance.js` → every skill conforms (body ≤500 lines, name==dir, description ≤1024). A FAIL here is almost always a Phase-3/5 edit — flag it.
+2. Audit wiring (the `check-templates` methodology): orphaned agents (defined, never dispatched), unused skills (no agent/command references them), broken skill references in agent frontmatter (a `skills:` entry with no matching dir — the exact failure class the Phase-5/optimize and template-merge work touches), missing hooks.
+3. **Anything CRITICAL that this sweep introduced** (a skill edit that broke conformance, an agent edit that orphaned a skill) → fix it in place and re-verify, since it's the sweep's own damage. Pre-existing issues unrelated to this sweep → log as residual follow-ups, don't auto-fix.
+
+### 7c — Timeline refresh (housekeeping, committed)
+1. `node .claude/core/gen-timeline.js` → regenerate/update `docs/_project-timeline.md` with the latest weekly commit history (now including this sweep's commits).
+2. Commit: `docs: /sweep p7 — timeline refresh`. (Skip the commit if `gen-timeline.js` produced no change.)
+
+---
+
+## Commit Convention (per-phase, this toolkit's gate)
+
+Inline `git commit -m` is blocked by the commit-guard hook. For each phase commit:
+1. `git add` the specific files that phase changed (not `git add .`).
+2. Write the message to `docs/.output/.commit-msg` with the Write tool (no `Co-Authored-By` line — `commit.js` appends the trailer).
+3. Run `node .claude/core/commit.js`.
+4. Record the hash in the Phase Log.
+
+With `--single-commit`, stage everything and make one commit after Phase 7 instead.
+
+---
+
+## Final Report
+
+Display (and persist to `docs/.output/reviews/{YYMMDD-HHMM}-sweep.md`):
+
+```markdown
+## /sweep Complete — {YYYY-MM-DD}
+
+**Scope:** {PRs / epics swept}    **Mode:** {autonomous | gated}
+
+| Phase | Result | Commit |
+|-------|--------|--------|
+| 1 Code review | {N} findings ({C}C/{M}M/{m}m); {K} auto-fixed | {hash} |
+| 2 Retro | {E} epics; {R} recommendations, {S} system improvements | {hash} |
+| 3 Implement | {applied} recs applied, {staged} memories staged, {fixed} bug fixes | {hash} |
+| 4 Promote | {P} promoted, {Q} manual-review candidates | {hash} |
+| 5 Optimize | {A} agents updated, {G} skill gaps flagged | {hash} |
+| 5b Evolve skills | {N} proposals staged ({I} IMPROVE / {C} CREATE) | {hash} |
+| 6 Defrag | {M} merges / {Sp} splits / {X} cross-refs | {hash} |
+| 7a Memory health | lint {before}→{after}, {stale} stale | — |
+| 7b Templates audit | {conformance pass/fail}; {orphans} orphaned agents, {unused} unused skills, {broken} broken skill refs | {hash if fixed} |
+| 7c Timeline | refreshed `_project-timeline.md` | {hash} |
+
+**Memory store:** {total_before} → {total_after} (per-category deltas)
+**Lint:** {lint_before} → {lint_after}
+
+### Still needs you (not auto-applied)
+- {MINOR/NIT code findings left for human judgment}
+- {manual-review promotion candidates below threshold}
+- {staged skill-evolution proposals — run `/review:evolve-skills --apply <skill>` to run the differential + accept}
+- {any phase that halted + why}
+```
+
+## What NOT to Do
+
+- Do NOT defrag before Phases 2–5 run — the new memories must land first.
+- Do NOT force-write into a near-cap category — stage to inbox, let Phase 6 resolve.
+- Do NOT auto-fix MINOR/NIT code findings on already-merged code — surface them, don't churn.
+- Do NOT push to remote — the user decides when to push.
+- Agents never build/test — only the orchestrator runs `gate.js`.
+- Use this repo's commit convention (`.commit-msg` + `commit.js`) — never inline `git commit -m`.
+
+## Relationship to the Sub-Commands
+
+This command *is* the auto-approved orchestration of: `/review:code-review` → `/review:check-sync` (in retro) → `/review:retro` → (implement) → `/review:promote-memories` → `/review:optimize-agents` → `/review:evolve-skills --auto` (propose-only) → `/review:memory-defrag` → `/review:memory-health` → `/review:check-templates` → `/review:timeline`. Run a sub-command directly when you want the interactive, single-purpose version. Run `/sweep` when you want the whole lifecycle hands-off.

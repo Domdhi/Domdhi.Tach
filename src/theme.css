@@ -1,0 +1,163 @@
+/*
+ * theme.css — shared design-token + reset layer for Tach extension pages.
+ *
+ * Tach adopts the **Domdhi.OS Design System** (neobrutalist synthwave —
+ * "tactical telemetry meets personal enterprise"). Tach is the MEDIA domain;
+ * the shipped default accent is the SYSTEM gem, Deep Amethyst (#9D4EDD) — the
+ * owner's reserved color, omitted from the options swatches (the five public
+ * gems live there). Tokens mirror the canonical
+ * Domdhi `colors_and_type.css` but keep Tach's existing SEMANTIC token NAMES
+ * (--background, --surface, --border, --text-primary, --primary-color, …) so the
+ * token-driven popup.css / options.css inherit the new look without rewiring.
+ *
+ * Loaded BEFORE the page stylesheet on every extension UI:
+ *   popup/popup.html     → <link href="../theme.css"> then <link href="popup.css">
+ *   options/options.html → <link href="../theme.css"> then <link href="options.css">
+ * Do NOT re-declare these :root blocks in a page stylesheet (single-source rule).
+ *
+ * Theme resolution (FR-13): popup.js / options.js call VSC.applyThemePreference()
+ * → sets [data-theme] on <html>. The accent is applied as inline --primary-* via
+ * VSC.applyAccentColor() (FR-20); glow + brutal-shadow tints are DERIVED from
+ * --primary-color with color-mix(), so any user-chosen gem auto-tints its own
+ * glow/shadow. Domdhi is dark-primary ("it is a terminal"); Tach additionally
+ * keeps a brutalist-LIGHT variant (paper + hard black edges) for theme=light.
+ */
+
+/* ===== Bundled webfonts (self-hosted woff2 — NO external requests) =====
+   JetBrains Mono + Space Grotesk, both SIL OFL 1.1 (see src/fonts/*-OFL.txt),
+   latin-subset woff2 (~13–22KB each). Clash Display was evaluated for the
+   wordmark but its Fontshare EULA forbids self-hosting/redistribution, so the
+   OFL Space Grotesk carries the brand face. Paths are relative to THIS file
+   (src/theme.css → src/fonts/). */
+@font-face {
+  font-family: "JetBrains Mono"; font-style: normal; font-weight: 400;
+  font-display: swap; src: url("fonts/jetbrains-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono"; font-style: normal; font-weight: 500;
+  font-display: swap; src: url("fonts/jetbrains-mono-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono"; font-style: normal; font-weight: 700;
+  font-display: swap; src: url("fonts/jetbrains-mono-700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Grotesk"; font-style: normal; font-weight: 500;
+  font-display: swap; src: url("fonts/space-grotesk-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Grotesk"; font-style: normal; font-weight: 700;
+  font-display: swap; src: url("fonts/space-grotesk-700.woff2") format("woff2");
+}
+
+:root {
+  /* ===== Domdhi brand constants (theme-independent) ===== */
+  /* The six domain gems — DO NOT desaturate (#00FF9F, not #10B981). */
+  --gem-emerald:  #00FF9F;  /* finance */
+  --gem-rose:     #FF0055;  /* fitness + destructive/error */
+  --gem-amber:    #FFB000;  /* freedom */
+  --gem-cyan:     #00F0FF;  /* tech */
+  --gem-violet:   #BF40FF;  /* media — Tach signature */
+  --gem-amethyst: #9D4EDD;  /* system / core glue */
+
+  /* Three-tier type. JetBrains Mono + Space Grotesk are bundled (self-hosted
+     woff2 via @font-face above — no external CDN); system stacks stay as
+     graceful fallbacks. (Clash Display was the intended wordmark but its
+     Fontshare EULA forbids self-hosting/redistribution — the OFL Space Grotesk
+     carries the brand face instead.) */
+  --font-brand:  "Space Grotesk", system-ui, sans-serif;
+  --font-header: "Space Grotesk", system-ui, -apple-system, sans-serif;
+  --font-mono:   "JetBrains Mono", "SFMono-Regular", "Menlo", monospace;
+
+  /* Motion — expo-out everywhere (never linear/ease). */
+  --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --transition: all 150ms var(--ease-expo);
+
+  /* Zero radius. Brutalist. Rounded corners are a bug. */
+  --border-radius: 0px;
+
+  /* Accent-derived glow + brutal-shadow tints (follow the user's gem). */
+  --accent-glow:         color-mix(in srgb, var(--primary-color) 55%, transparent);
+  --accent-glow-strong:  color-mix(in srgb, var(--primary-color) 90%, transparent);
+  --accent-glow-alpha:   color-mix(in srgb, var(--primary-color) 15%, transparent);
+  --accent-shadow:       color-mix(in srgb, var(--primary-color) 45%, transparent);
+  --accent-shadow-hover: color-mix(in srgb, var(--primary-color) 60%, transparent);
+
+  /* ===== Semantic tokens — LIGHT (brutalist-light) defaults =====
+     Base :root carries light so theme=auto on a light OS renders light. */
+  --primary-color: #9D4EDD;          /* media violet (overridden by inline accent) */
+  --primary-hover: #7e3cc0;
+  --on-accent: #020202;              /* void-black text on a neon fill */
+  --background: #f4f3ee;             /* warm paper, never pure white */
+  --surface: #ffffff;                /* card fill */
+  --border: #020202;                 /* hard black committed edges */
+  --text-primary: #020202;
+  --text-secondary: #52525b;         /* zinc-600 */
+  /* Brutal hard shadow — no blur, ever. Black on light. */
+  --shadow: 4px 4px 0 0 rgba(2, 2, 2, 0.9);
+  --status-success: #047857;         /* emerald, AA on paper */
+  --status-error: #c01048;           /* rose, AA on paper */
+}
+
+/* ===== DARK = the Domdhi terminal =====
+ * Path 1 — system dark, unless the user forced light.
+ * Path 2 — explicit data-theme="dark" (wins on a light OS).
+ * Substrate: Obsidian Void #020202 (never #000), Phosphor White #EDEDED text.
+ * Elevation via lighter panel fill, not soft shadows. Brutal shadow tints to
+ * the active accent so cards/buttons carry their gem's hard offset shadow.
+ *
+ * Accent note: applyAccentColor() sets inline --primary-color/--primary-hover/
+ * --on-accent on <html>; inline wins over these defaults, so the user's gem
+ * always governs. The #9D4EDD default below shows only before storage resolves.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --primary-color: #9D4EDD;
+    --primary-hover: #b370e8;
+    --on-accent: #020202;
+    --background: #020202;           /* obsidian void */
+    --surface: #0a0a0a;              /* drawer / card */
+    --border: rgba(255, 255, 255, 0.16);
+    --text-primary: #ededed;         /* CRT phosphor white */
+    --text-secondary: #71717a;       /* zinc-500 */
+    --shadow: 4px 4px 0 0 var(--accent-shadow);
+    --status-success: #00FF9F;       /* emerald gem */
+    --status-error: #FF0055;         /* rose gem */
+  }
+}
+
+:root[data-theme="dark"] {
+  --primary-color: #9D4EDD;
+  --primary-hover: #b370e8;
+  --on-accent: #020202;
+  --background: #020202;
+  --surface: #0a0a0a;
+  --border: rgba(255, 255, 255, 0.16);
+  --text-primary: #ededed;
+  --text-secondary: #71717a;
+  --shadow: 4px 4px 0 0 var(--accent-shadow);
+  --status-success: #00FF9F;
+  --status-error: #FF0055;
+}
+
+/* Path 3 — explicit light override (brutalist-light, wins over a dark OS). */
+:root[data-theme="light"] {
+  --primary-color: #9D4EDD;
+  --primary-hover: #7e3cc0;
+  --on-accent: #020202;
+  --background: #f4f3ee;
+  --surface: #ffffff;
+  --border: #020202;
+  --text-primary: #020202;
+  --text-secondary: #52525b;
+  --shadow: 4px 4px 0 0 rgba(2, 2, 2, 0.9);
+  --status-success: #047857;
+  --status-error: #c01048;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: var(--font-header);
+}

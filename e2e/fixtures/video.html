@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>Tach E2E fixture — video page</title>
+</head>
+
+<body>
+  <h1>Tach E2E fixture</h1>
+  <!--
+    A bare HTML5 <video> served over http:// (content scripts don't inject on
+    file:// without "Allow access to file URLs"). The source is a tiny VP8 WebM
+    (video.webm) — Playwright's bundled Chromium lacks proprietary H.264 codecs,
+    so VP8/WebM is used so the clip actually decodes and reaches readyState > 0,
+    letting the content script's playbackRate write stick. Regenerate the asset
+    with `node e2e/fixtures/make-video.js`.
+  -->
+  <video id="vid" width="320" height="240" controls muted loop preload="auto" src="video.webm"></video>
+</body>
+
+</html>

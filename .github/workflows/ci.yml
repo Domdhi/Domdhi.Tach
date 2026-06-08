@@ -1,0 +1,38 @@
+name: CI
+
+# Story 0.6 (FR-8 support) — run the unit gate on every push and PR so a
+# red suite blocks merge. E2E (Playwright) is intentionally NOT run here: it
+# loads the unpacked extension in a real Chromium and is run locally.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Build + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Syntax check (src/)
+        run: |
+          node --check src/constants.js
+          node --check src/content.js
+          node --check src/content-youtube.js
+          node --check src/background.js
+          node --check src/popup/popup.js
+          node --check src/options/options.js
+
+      - name: Unit tests
+        run: npm test

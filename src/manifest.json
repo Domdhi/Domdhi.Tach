@@ -1,0 +1,65 @@
+{
+  "manifest_version": 3,
+  "name": "Video Speed & Playback Control — Tach",
+  "version": "1.0.0",
+  "description": "Set a default playback speed for every HTML5 video, with per-site speeds, quick controls, and YouTube cleanup. Free, private, open source.",
+  "author": "Domdhi",
+  "homepage_url": "https://domdhi.com",
+  "permissions": [
+    "storage",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png"
+    }
+  },
+  "options_page": "options/options.html",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["constants.js", "content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["constants.js", "content-youtube.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "increase-speed": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Period",
+        "mac": "Command+Shift+Period"
+      },
+      "description": "Increase video speed"
+    },
+    "decrease-speed": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Comma",
+        "mac": "Command+Shift+Comma"
+      },
+      "description": "Decrease video speed"
+    },
+    "reset-speed": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+0",
+        "mac": "Command+Shift+0"
+      },
+      "description": "Reset video speed to 1.0x"
+    }
+  }
+}

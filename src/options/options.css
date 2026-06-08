@@ -1,0 +1,471 @@
+/*
+ * options.css — settings-page component styles for Tach.
+ *
+ * Built on the shared design tokens in ../theme.css (loaded first), so the
+ * options page renders from the SAME light/dark/accent contract as the popup.
+ * The page applies its own theme + accent at runtime: options.js calls
+ * VSC.applyThemePreference() / VSC.applyAccentColor() on <html> (Stories 6.3/6.6),
+ * which is why every color below is a var(--token) — never a hardcoded hex.
+ *
+ * Status colors use a fallback (var(--status-error, #cf222e)) because the base
+ * :root token set defines --status-* only on the explicit light/dark paths; the
+ * fallback covers the 'auto' + light-OS case. See the dark-mode AA constraint
+ * memory dark-mode-reuses-light-status-colors-fail-aa.
+ */
+
+body {
+  background-color: var(--background);
+  /* Domdhi dot-grid canvas (24×24 radial). */
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--text-primary) 7%, transparent) 1px, transparent 1px);
+  background-size: 24px 24px;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+.page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 32px 24px 48px;
+}
+
+/* ---- Page header ---- */
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.page-header svg {
+  flex-shrink: 0;
+}
+
+.page-header h1 {
+  font-family: var(--font-brand);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.page-header .page-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 2px 0 0;
+}
+
+/* ---- Section cards ---- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  box-shadow: var(--shadow);
+  padding: 20px 24px;
+  margin-bottom: 20px;
+}
+
+.card h2 {
+  font-family: var(--font-header);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  margin: 0 0 4px;
+}
+
+/* // section-label motif: a mono accent comment prefix on every card title. */
+.card h2::before {
+  content: "// ";
+  font-family: var(--font-mono);
+  color: var(--primary-color);
+  text-shadow: 0 0 8px var(--accent-glow);
+}
+
+.card > p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 16px;
+}
+
+/* ---- Form controls (shared look) ---- */
+.speed-input,
+.preset-input,
+select.speed-input {
+  background: var(--background);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  /* Numbers + telemetry → JetBrains Mono. */
+  font-family: var(--font-mono);
+  padding: 8px 10px;
+  font-size: 14px;
+  box-sizing: border-box;
+  transition: var(--transition);
+}
+
+.speed-input {
+  width: 100%;
+  margin: 0 0 12px;
+}
+
+/* Default-speed input + Save button on one line. */
+.speed-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.speed-row .speed-input {
+  flex: 1 1 auto;
+  margin: 0; /* the row owns spacing; status sits below */
+  min-width: 0;
+}
+
+.speed-row .save-button {
+  flex: 0 0 auto;
+  width: auto;
+  white-space: nowrap;
+}
+
+select.speed-input {
+  width: 100%;
+  cursor: pointer;
+}
+
+.speed-input:focus,
+.preset-input:focus,
+select.speed-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 25%, transparent);
+}
+
+/* ---- Buttons ---- */
+.save-button,
+.reset-presets-btn {
+  border: none;
+  border-radius: 0;
+  /* Domdhi button — JetBrains Mono, uppercase, wide tracking. */
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+/* Primary action — accent fill + auto-contrast text + brutal shadow. */
+.save-button {
+  width: 100%;
+  padding: 11px 16px;
+  background: var(--primary-hover);
+  color: var(--on-accent);
+  box-shadow: 4px 4px 0 0 var(--accent-shadow);
+}
+
+.save-button:hover {
+  filter: brightness(1.05);
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 0 var(--accent-shadow-hover), 0 0 24px var(--accent-glow-alpha);
+}
+
+.save-button:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 0 var(--accent-shadow);
+}
+
+/* Secondary action — outline that adopts the accent + glow on hover. */
+.reset-presets-btn {
+  width: 100%;
+  padding: 8px 14px;
+  margin-top: 10px;
+  /* Solid surface fill (not transparent) so the dot-grid canvas doesn't show
+     through the button; hover still reads via the accent border + glow below. */
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.reset-presets-btn:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  text-shadow: 0 0 10px var(--accent-glow);
+  transform: translate(-1px, -1px);
+}
+
+/* ---- Save status message ---- */
+.status {
+  min-height: 18px;
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.status[data-kind="success"] {
+  color: var(--status-success, #1a7f37);
+}
+
+.status[data-kind="error"] {
+  color: var(--status-error, #cf222e);
+}
+
+/* ---- Per-site preset rows ---- */
+.per-site-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.per-site-row:last-child {
+  border-bottom: none;
+}
+
+/* Domain takes the slack and truncates with '...' before crowding the speed. */
+.per-site-domain {
+  font-size: 14px;
+  color: var(--text-primary);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Speed pinned right, hard against Remove — never shrinks or truncates. */
+.per-site-speed {
+  font-size: 14px;
+  color: var(--text-secondary);
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Edit + delete icon buttons, grouped right against the speed. */
+.per-site-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.per-site-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: var(--transition);
+}
+
+.per-site-icon-btn svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+/* Edit / save adopt the accent on hover; delete / cancel go error-red. */
+.per-site-icon-btn:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  box-shadow: 2px 2px 0 0 var(--accent-shadow);
+}
+
+.per-site-delete:hover,
+.per-site-cancel:hover {
+  border-color: var(--status-error, #cf222e);
+  color: var(--status-error, #cf222e);
+  background: color-mix(in srgb, var(--status-error, #cf222e) 12%, transparent);
+}
+
+/* Inline speed editor — sits where the speed label was, never grows the row. */
+.per-site-speed-input {
+  flex: 0 0 auto;
+  width: 72px;
+  padding: 5px 8px;
+  font-size: 14px;
+  background: var(--background);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  box-sizing: border-box;
+}
+
+.per-site-speed-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 25%, transparent);
+}
+
+.per-site-empty {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin: 4px 0;
+}
+
+/* ---- Toggle rows ---- */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  cursor: pointer;
+}
+
+.toggle-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  /* Themed native checkbox — adopts the user's accent in both modes. */
+  accent-color: var(--primary-color);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.toggle-label {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.toggle-label small {
+  color: var(--text-secondary);
+}
+
+/* ---- Preset grid ---- */
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.preset-input {
+  width: 100%;
+  text-align: center;
+}
+
+/* ---- Accent swatches ---- */
+.accent-swatches {
+  display: flex;
+  /* Spread the swatches evenly across the full width — first flush left, last
+     flush right, equal spacing between. gap is the minimum so they never crowd. */
+  justify-content: space-between;
+  gap: 8px;
+  margin: 4px 0 16px;
+}
+
+.accent-swatch {
+  width: 36px;
+  height: 36px;
+  border-radius: 0;
+  /* background-color is set inline per swatch (its represented color). */
+  border: 2px solid var(--border);
+  cursor: pointer;
+  transition: var(--transition);
+  padding: 0;
+}
+
+.accent-swatch:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 3px 3px 0 0 color-mix(in srgb, var(--text-primary) 40%, transparent);
+}
+
+.accent-swatch:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+.accent-custom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.accent-custom label {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+#accentColorInput {
+  width: 44px;
+  height: 32px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--background);
+  cursor: pointer;
+}
+
+/* ---- Theme selector row ---- */
+.theme-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.theme-row .toggle-label {
+  font-weight: 500;
+}
+
+/* About / version + author credit line (moved here from the popup footer). */
+.options-about {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 0.5em;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+
+.options-about .about-sep {
+  opacity: 0.6;
+}
+
+.options-about a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: var(--transition);
+}
+
+.options-about a:hover,
+.options-about a:focus-visible {
+  color: var(--primary-color);
+  text-decoration: underline;
+}
+
+/* ---- Embedded in the popup settings iframe (compact) ---- */
+/* options.js adds .embedded to <html> when this page is framed by the popup.
+   The popup already shows a "Settings" header + back button and supplies padding,
+   so drop the page-level chrome and tighten spacing to fit the narrow iframe. */
+.embedded .page {
+  max-width: none;
+  /* Left flush (0) so cards align with the popup's main-view cards. Right +
+     bottom get room for the card's 4px×4px hard offset shadow (var(--shadow)) —
+     otherwise the iframe clips the right border/shadow at its edge. */
+  padding: 0 8px 24px 0;
+}
+
+.embedded .page-header {
+  display: none;
+}
+
+.embedded .card {
+  padding: 16px;
+  margin-bottom: 14px;
+}

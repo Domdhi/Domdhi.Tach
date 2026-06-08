@@ -1,0 +1,741 @@
+/*
+ * popup.css — popup-specific component styles.
+ *
+ * The design-token contract (light/dark/auto :root vars + the base reset) lives
+ * in the shared ../theme.css, linked BEFORE this file in popup.html. Do not
+ * re-declare those tokens here — see theme.css for the single-source rationale.
+ */
+
+/* Pin the popup to ONE fixed width so all three views (main, gear→settings, and
+   back) render identically. Chrome NEVER shrinks a popup back down once a tall,
+   scrolling view has grown it — that's what made the main view jump wider after
+   opening Settings and reflow the preset grid from 2 columns to 3. A fixed width
+   on the root removes the float entirely. overflow-x:hidden prevents a horizontal
+   scrollbar; scrollbar-gutter reserves the (thin) vertical scrollbar space on both
+   edges so content stays centered and the width is identical whether or not a
+   view scrolls. The scrollbar itself is slimmed below. */
+html {
+  width: 300px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin; /* Firefox; Chrome/Brave use ::-webkit-scrollbar below */
+}
+
+html::-webkit-scrollbar {
+  width: 8px;
+}
+
+html::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+
+html::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+body {
+  width: 100%; /* fill the pinned html width — never a second fixed width to drift */
+  background-color: var(--background);
+  /* Domdhi dot-grid canvas (24×24 radial). Tactical terminal substrate. */
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--text-primary) 7%, transparent) 1px, transparent 1px);
+  background-size: 24px 24px;
+  color: var(--text-primary);
+  padding: 16px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+/* Needle-mark SVG sits left of the brand stack */
+.header__mark {
+  flex-shrink: 0;
+  display: block;
+}
+
+/* Brand stack: TACH wordmark above the // READY / // OVERDRIVE sub-label */
+.header__brand {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+}
+
+.header h1 {
+  font-family: var(--font-brand);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+/* ---- Settings view (gear toggle → embedded options page) ---- */
+.header-actions {
+  /* Push the gear/back buttons to the right edge of the header. */
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.icon-btn:hover {
+  /* No square: keep the background transparent so the drop-shadow filter glows
+     the ICON shape itself (the SVG), not a filled box behind it. */
+  background: transparent;
+  color: var(--primary-color);
+  filter: drop-shadow(0 0 7px var(--accent-glow));
+}
+
+.icon-btn:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+/* The explicit display above beats the UA [hidden] rule, so restore it
+   (same convention as .transcript__btn[hidden] below). */
+.icon-btn[hidden] {
+  display: none;
+}
+
+#mainView {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#mainView[hidden] {
+  display: none;
+}
+
+#settingsFrame {
+  display: block;
+  width: 100%;
+  /* Height is auto-sized to the embedded page by popup.js so the popup scrolls
+     as ONE unit (no nested iframe scrollbar). min-height avoids a 0px flash
+     before the load handler runs. */
+  min-height: 200px;
+  border: none;
+  border-radius: var(--border-radius);
+  background: var(--background);
+}
+
+.speed-display {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  padding: 10px 14px;
+  text-align: center;
+  box-shadow: var(--shadow);
+  margin-bottom: 0;
+}
+
+.speed-value {
+  /* Telemetry number → JetBrains Mono, accent fill + CRT glow.
+     Lives directly under the dial now (not in the bowl), so it has room for
+     full presence at 34px. */
+  font-family: var(--font-mono);
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--primary-color);
+  text-shadow: 0 0 18px var(--accent-glow);
+  margin: 0;
+  line-height: 1;
+  transition: var(--transition);
+}
+
+/* ---- Tachometer gauge ---- */
+
+/* Outer wrapper centers the SVG. */
+.gauge {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  /* Vertical margin inside the .speed-display card. */
+  margin: 0;
+  /* The dial is the analog input: grab + drag. touch-action:none lets
+     pointermove drive the needle instead of scrolling the popup. */
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  border-radius: var(--border-radius);
+}
+
+.gauge.gauge--dragging {
+  cursor: grabbing;
+}
+
+/* Only show the focus ring for keyboard focus, not a mouse grab. */
+.gauge:focus {
+  outline: none;
+}
+
+.gauge:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+/* SVG box. viewBox 200×116 holds the 180° top arch + cap labels. Wide & short:
+   fills the card width while staying compact so the popup needs no scrollbar.
+   overflow:visible is only for the glow. */
+.gauge__svg {
+  width: 210px;
+  height: 108px;
+  overflow: visible;
+}
+
+/* Full 270° arc at --border (theme-adaptive). */
+.gauge__track {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 8;
+  stroke-linecap: butt;
+}
+
+/* Amethyst fill from 0.1 → min(value, 1.0). Transitions on dashoffset. */
+.gauge__fill {
+  fill: none;
+  stroke: var(--primary-color);
+  stroke-width: 8;
+  stroke-linecap: butt;
+  filter: drop-shadow(0 0 6px var(--accent-glow));
+  transition: stroke-dashoffset 240ms var(--ease-expo);
+}
+
+/* Rose redline from 1.0 → value (only rendered when value > 1.0).
+   FALLBACK required on every --status-error use (not in base :root). */
+.gauge__redline {
+  fill: none;
+  stroke: var(--status-error, #cf222e);
+  stroke-width: 8;
+  stroke-linecap: butt;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--status-error, #cf222e) 55%, transparent));
+  transition: stroke-dashoffset 240ms var(--ease-expo), opacity 200ms var(--ease-expo);
+  opacity: 0;
+}
+
+/* 1.0x gate tick — a short radial mark across the ring at the normal-speed mark. */
+.gauge__gate {
+  stroke: var(--text-primary);
+  stroke-width: 2;
+  opacity: 0.7;
+}
+
+/* Range end-cap labels (0.1 / 4.0) in mono, small. */
+.gauge__caplabel {
+  fill: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+/* Needle line from hub centre to value angle.
+   transform-box:fill-box + transform-origin:50% 100% pivots the needle at the
+   hub point (x1="100",y1="100") regardless of how the SVG is scaled on screen.
+   (The mock used transform-origin:100px 100px in SVG user units, which drifts
+   when the SVG is rendered smaller than its 200-unit viewBox.) */
+.gauge__needle {
+  stroke: var(--primary-color);
+  stroke-width: 3;
+  stroke-linecap: butt;
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 0 6px var(--accent-glow));
+  transition: transform 260ms var(--ease-expo);
+}
+
+/* Redline state: switch needle to rose. FALLBACK required. */
+.gauge__needle--redline {
+  stroke: var(--status-error, #cf222e);
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--status-error, #cf222e) 55%, transparent));
+}
+
+/* Hub dot on top of the needle base. */
+.gauge__hub {
+  fill: var(--primary-color);
+  stroke: var(--surface);
+  stroke-width: 1.5;
+}
+
+/* Readout stack: number + overdrive tag. Sits in the middle of the controls
+   row, flanked by the −/+ buttons, taking the space the slider used to. */
+.gauge__readout {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+/* OVERDRIVE tag. Height is always reserved (opacity-toggled, never display-toggled)
+   so the popup never changes height across speeds. FALLBACK required. */
+.gauge__tag {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--status-error, #cf222e);
+  opacity: 0;
+  transition: opacity 200ms var(--ease-expo);
+  /* Reserve the line height even when invisible (height-stable guarantee). */
+  height: 11px;
+  line-height: 11px;
+}
+
+.gauge__tag[data-state="overdrive"] {
+  opacity: 1;
+}
+
+.speed-label {
+  /* // CURRENT SPEED — mono section label, wide tracking. */
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.25em;
+  font-weight: 500;
+}
+
+.speed-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 0;
+}
+
+/* The −/+ buttons flank the readout: compact (auto width), NOT the full-width
+   flex:1 the RESET/REDLINE button row uses. */
+.speed-controls .btn {
+  flex: 0 0 auto;
+  min-width: 46px;
+}
+
+.slider-container {
+  flex: 1;
+  position: relative;
+  height: 24px;
+  display: flex;
+  align-items: center;
+}
+
+/* The range input is now a hidden state holder only (the dial is the visible
+   input). Explicit guard so the [hidden] attribute reliably hides it. */
+.speed-slider[hidden] {
+  display: none;
+}
+
+.speed-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  /* Throttle split: amethyst 0→p1 (1.0x gate), rose p1→pv (current value),
+     track pv→100% (unfilled). --p1 and --pv are driven by popup.js on every
+     speed change. When value ≤ 1.0x, --pv equals --p1 so the rose band collapses.
+     FALLBACK required on --status-error (not in base :root). */
+  background: linear-gradient(to right,
+    var(--primary-color) 0 var(--p1, 24.8%),
+    var(--status-error, #cf222e) var(--p1, 24.8%) var(--pv, 24.8%),
+    var(--border) var(--pv, 24.8%) 100%);
+  outline: none;
+  margin: 0;
+  padding: 0;
+}
+
+.speed-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  /* Diamond = 16px square rotated 45° (diagonal ≈22.6px fits the 24px track row).
+     The accent glow is radial/symmetric, so it stays correct through the rotation
+     and tracks the theme accent like every other --accent-glow surface. */
+  width: 16px;
+  height: 16px;
+  border-radius: 0;
+  background: var(--primary-color);
+  cursor: pointer;
+  transform: rotate(45deg);
+  transition: var(--transition);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.speed-slider::-webkit-slider-thumb:hover {
+  /* Preserve the 45° rotation while growing on hover. */
+  transform: rotate(45deg) scale(1.15);
+  background: var(--primary-hover);
+  box-shadow: 0 0 16px var(--accent-glow-strong);
+}
+
+.speed-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 0;
+  background: var(--primary-color);
+  cursor: pointer;
+  transform: rotate(45deg);
+  transition: var(--transition);
+  border: none;
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.speed-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.btn {
+  flex: 1;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 0;
+  /* Domdhi button — JetBrains Mono, uppercase, wide tracking. */
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  /* Keep "[ REDLINE ]" on one line — never wrap the bracketed label. */
+  white-space: nowrap;
+  transition: var(--transition);
+}
+
+.btn-primary {
+  /* Fill with the darker --primary-hover rather than --primary-color so the
+     label meets WCAG AA 4.5:1. applyAccentColor() auto-derives --primary-hover
+     from the user's chosen accent; ensureAccentContrast() sets --on-accent to
+     white or #0d1117 so the text colour flips automatically for light accents.
+     See constraint memory popup-primary-button-contrast-fail and Story 6.6. */
+  background: var(--primary-hover);
+  color: var(--on-accent);
+  /* Brutal hard offset shadow (2px, scaled for the 300px popup; no blur). */
+  box-shadow: 2px 2px 0 0 var(--accent-shadow);
+}
+
+.btn-primary:hover {
+  /* Lift into the shadow (grows to 4px) + accent glow halo. Accent-aware via
+     brightness() + the color-mixed --accent-* tints (any chosen gem follows). */
+  filter: brightness(1.05);
+  transform: translate(-2px, -2px);
+  box-shadow: 4px 4px 0 0 var(--accent-shadow-hover), 0 0 20px var(--accent-glow-alpha);
+}
+
+.btn-primary:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 0 var(--accent-shadow);
+}
+
+.btn-outline {
+  /* Solid surface fill (not transparent) so the dot-grid canvas doesn't show
+     through the button; hover still reads via the accent border + glow below. */
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.btn-outline:hover {
+  background: var(--surface);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  text-shadow: 0 0 10px var(--accent-glow);
+  transform: translate(-1px, -1px);
+}
+
+.preset-speeds {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.preset-btn {
+  flex: 1;
+  /* Always 2 per row (3 rows of 2) — the slim layout. The width is pinned (see
+     html above), so the grid no longer reflows to 3 columns when the popup grows. */
+  min-width: calc(50% - 4px);
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  /* Use the theme token, not the hardcoded white, so the button blends with the
+     popup surface in both light and dark modes. */
+  background: var(--background);
+  color: var(--text-primary);
+  /* Preset speeds are numbers → JetBrains Mono. */
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  text-align: center;
+}
+
+.preset-btn:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  text-shadow: 0 0 8px var(--accent-glow);
+  transform: translate(-1px, -1px);
+}
+
+.preset-btn.active {
+  /* Active = accent fill + void-safe --on-accent text + brutal shadow + glow. */
+  background: var(--primary-color);
+  color: var(--on-accent);
+  border-color: var(--primary-color);
+  box-shadow: 2px 2px 0 0 var(--accent-shadow), 0 0 14px var(--accent-glow-alpha);
+}
+
+/* ---- Story 3.6: Remember speed for this site ---- */
+.remember-site {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  padding: 10px 14px;
+}
+
+.remember-site__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.remember-site__text {
+  font-size: 13px;
+  /* #24292e on #f8f9fa gives ~12:1 contrast — well above WCAG AA 4.5:1 */
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.remember-site__domain {
+  font-weight: 600;
+  /* #24292e is the text color — same high-contrast token */
+  color: var(--text-primary);
+}
+
+/* Visually hidden checkbox; the styled span acts as the toggle track+thumb */
+.remember-site__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Toggle track */
+.remember-site__switch {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+}
+
+.remember-site__slider {
+  position: absolute;
+  inset: 0;
+  /* OFF fill — a muted tint, NOT var(--border) (hard black in light mode → a
+     heavy black slab). color-mix of the text color reads as a grey track in both
+     themes; the thumb carries the contrast. No border, so the thumb geometry is
+     unchanged. */
+  background: color-mix(in srgb, var(--text-primary) 22%, transparent);
+  transition: background 0.2s var(--ease-expo);
+}
+
+/* Toggle thumb */
+.remember-site__slider::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 0;
+  background: var(--text-primary);
+  transition: transform 0.2s var(--ease-expo);
+}
+
+/* Checked state — accent track, thumb slides right */
+.remember-site__input:checked + .remember-site__slider {
+  /* Accent track — was a hardcoded blue (#2a4fd4) that ignored the user's accent
+     and stayed blue when it changed. The thumb is white; white on the accent is
+     decorative (not text). */
+  background: var(--primary-color);
+}
+
+.remember-site__input:checked + .remember-site__slider::before {
+  transform: translateX(16px);
+}
+
+/* Focus ring on keyboard navigation */
+.remember-site__input:focus-visible + .remember-site__slider {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+/* Disabled state when domain cannot be determined */
+.remember-site__input:disabled + .remember-site__slider {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.remember-site__input:disabled ~ .remember-site__text,
+.remember-site__label:has(.remember-site__input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* Subtle pulse on the value text when speed changes. Scale is restrained
+   (1.06) so it doesn't shift the gauge center readout visually. */
+@keyframes pulse {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+.speed-change {
+  animation: pulse 0.3s ease-in-out;
+}
+
+/* ---- Story 5.3: Copy Transcript (YouTube watch pages) ---- */
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Copy Transcript button + timestamps chip share one row to save height. */
+.transcript__row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.transcript__btn {
+  flex: 1;
+  justify-content: center;
+}
+
+/* Hidden on non-YouTube / non-watch pages via the [hidden] attribute (AC3). */
+.transcript__btn[hidden] {
+  display: none;
+}
+
+/* "Include timestamps" — a compact toggle chip beside Copy Transcript that fills
+   with the accent when selected (like the speed preset buttons' active state).
+   Keeps the real checkbox (#includeTimestampsToggle) for the JS/tests; the chip
+   face is the visible control, driven by input:checked (same pattern as the
+   remember-site switch). */
+.transcript__chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.transcript__chip[hidden] {
+  display: none;
+}
+
+/* Visually-hidden checkbox; the .transcript__chip-face span is the toggle. */
+.transcript__chip-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.transcript__chip-face {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--background);
+  color: var(--text-secondary);
+  transition: var(--transition);
+}
+
+.transcript__chip:hover .transcript__chip-face {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.transcript__chip-input:checked + .transcript__chip-face {
+  background: var(--primary-color);
+  color: var(--on-accent);
+  border-color: var(--primary-color);
+}
+
+.transcript__chip-input:focus-visible + .transcript__chip-face {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+.transcript__status {
+  min-height: 16px;
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: center;
+  /* Default (pending / none): secondary text — ~5:1 on the popup background. */
+  color: var(--text-secondary);
+}
+
+/* Token-driven so the color stays WCAG AA on BOTH themes: light #1a7f37 ≈ 4.9:1
+   on #fff, dark #3fb950 ≈ 6.6:1 on #1c2128. The light hex is also the FALLBACK:
+   theme.css defines --status-* only in the dark blocks + [data-theme="light"],
+   never base :root, so under the default 'auto' theme on a light OS the token is
+   undefined and the color would silently fall back to grey --text-secondary.
+   The fallback restores green/red. See memory dark-mode-reuses-light-status-
+   colors-fail-aa / css-token-no-fallback-on-new-surface (matches options.css). */
+.transcript__status[data-kind="success"] {
+  color: var(--status-success, #1a7f37);
+  font-weight: 600;
+}
+
+/* Light #cf222e ≈ 5.1:1 on #fff, dark #f85149 ≈ 5.3:1 on #1c2128. */
+.transcript__status[data-kind="error"] {
+  color: var(--status-error, #cf222e);
+}
+

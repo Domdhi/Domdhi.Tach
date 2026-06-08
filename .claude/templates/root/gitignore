@@ -1,0 +1,48 @@
+# ============================================
+# Domdhi.Agents — System Ignores
+# ============================================
+
+# Dependencies
+node_modules/
+
+# Environment / secrets
+# (defense-in-depth; the pre-commit secret scanner is the real gate)
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.local.*
+
+# Temp / Logs
+*.log
+*.bak
+*.tmp
+.archive
+
+# Runtime artifacts
+# Anchored to root with leading slash so the tracked template version at
+# .claude/templates/root/.playwright/ remains visible to git.
+/.playwright*/
+# Playwright test output — written by `npx playwright test` / `npm run e2e`.
+# Pure per-run artifacts (traces, screenshots, HTML report); never committed.
+# Pre-seeded so a project that stands up an E2E runner doesn't leak them (F29).
+test-results/
+playwright-report/
+
+# Ephemeral output (rebuilt from source or session-specific)
+# Tracked (NOT listed here): plans/, reviews/, research/, investigations/, work/
+.claude/.agents.docs/
+# Agent-scoped working memory (per-agent markdown the sub-agents accumulate).
+# Local/regenerable like docs/.output/memories/ — must NOT be committed (C10).
+.claude/agent-memory/
+# commit.js scratch file — rewritten on every commit; tracking it leaves the
+# tree perpetually dirty (and re-tracks itself when commit.js --all runs).
+docs/.output/.commit-msg
+docs/.output/memories/
+docs/.output/screenshots*/
+docs/.output/sessions*/
+docs/.output/telemetry*/
+docs/.output/telemetry/coverage/
+# Generated dashboards — rebuilt on every /status run from TODO files + telemetry
+docs/.output/status.html
+docs/.output/decisions.html

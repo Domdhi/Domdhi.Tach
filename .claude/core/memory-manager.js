@@ -1,0 +1,1453 @@
+#!/usr/bin/env node
+
+/**
+ * Memory Manager - Dual-storage: JSON files (source of truth) + SQLite FTS5 (search index)
+ *
+ * JSON files at docs/.output/memories/{category}/{id}.json — human-readable, git-trackable
+ * SQLite at docs/.output/memories/memories.db — FTS5 full-text search (Node 25+ built-in)
+ *
+ * SQLite is optional — gracefully falls back to JSON scan if unavailable.
+ */
+
+const fs = require('fs').promises;
+const fsSync = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
+const CONSTANTS = require('./constants');
+const {
+    calculateDecayedConfidence: calcDecay,
+    createActiveDaysResolver,
+} = require('./_lib/memory-decay');
+const { parseFrontmatter: parseFm } = require('./_lib/frontmatter');
+const { lintMemories: lintMemoriesLib } = require('./_lib/memory-lint');
+const {
+    ingestAgentMemory: ingestAgentMemoryLib,
+    typeToCategory: ingestTypeToCategory,
+    idFromFilename: ingestIdFromFilename,
+    findMarkdownFiles: ingestFindMarkdownFiles,
+} = require('./_lib/memory-ingest');
+const { appendJsonl } = require('./_lib/jsonl-writer');
+
+// Memory guard constants
+// Cap source is constants.js; env override (MEMORY_MAX_PER_CATEGORY) applied here
+// with the SAME expression as memory-guard.cjs so the two sites can never diverge.
+const MAX_MEMORIES_PER_CATEGORY = parseInt(process.env.MEMORY_MAX_PER_CATEGORY, 10) || CONSTANTS.MEMORY_FILTERS.MEMORY_MAX_PER_CATEGORY;
+const PRUNE_THRESHOLD_PERCENT = 0.8;
+const PRUNE_MIN_AGE_DAYS = 30;
+const PRUNE_MIN_CONFIDENCE = 0.3;
+// Dead-weight flagger (ME-1.1): min active-work-days since `created` for a
+// never-recalled memory to surface. Env override at the call site only —
+// constants.js stays static (per static-constants-env-override-at-callsite).
+const EXPOSURE_MIN_ACTIVE_DAYS = parseInt(process.env.MEMORY_EXPOSURE_MIN_DAYS, 10) || CONSTANTS.MEMORY_FILTERS.EXPOSURE_MIN_ACTIVE_DAYS;
+// Write-time importance default (ME-2.1). Env override at the call site only.
+const IMPORTANCE_DEFAULT = parseInt(process.env.MEMORY_IMPORTANCE_DEFAULT, 10) || CONSTANTS.MEMORY_FILTERS.IMPORTANCE_DEFAULT;
+const IMPORTANCE_MIN = 1;
+const IMPORTANCE_MAX = 5;
+
+// Coerce any author-supplied importance to an integer clamped to [1,5];
+// non-numeric / missing → IMPORTANCE_DEFAULT.
+function clampImportance(v) {
+    const n = parseInt(v, 10);
+    if (!Number.isFinite(n)) return IMPORTANCE_DEFAULT;
+    return Math.max(IMPORTANCE_MIN, Math.min(IMPORTANCE_MAX, n));
+}
+
+/**
+ * Convert a freeform search string into an FTS5 query.
+ *
+ * FTS5's default match mode is AND, which makes multi-word ad-hoc queries like
+ * "publish tooling refactor" return [] unless one memory contains every term.
+ * Callers (commands, agents) write multi-word topic queries expecting OR-style
+ * fuzzy match, so split-and-OR-join is the right default. Power users can still
+ * force phrase/AND/NEAR by writing FTS5 syntax explicitly.
+ *
+ * Pass-through cases (caller knows what they want):
+ *   - Contains FTS5 operators (OR, AND, NOT, NEAR)
+ *   - Contains quote/colon/caret/star/paren — explicit FTS5 syntax
+ *
+ * Otherwise: tokenize on non-word chars, drop tokens shorter than 2, OR-join.
+ * If 0-1 tokens survive, return the original string unchanged.
+ */
+function buildFtsQuery(searchTerm) {
+    if (!searchTerm || typeof searchTerm !== 'string') return searchTerm;
+    if (/[":^*()]/.test(searchTerm)) return searchTerm;
+    if (/\b(OR|AND|NOT|NEAR)\b/.test(searchTerm)) return searchTerm;
+    const tokens = searchTerm.split(/[^a-zA-Z0-9_-]+/).filter(t => t.length > 1);
+    if (tokens.length <= 1) return searchTerm;
+    return tokens.join(' OR ');
+}
+
+// SQLite backend resolution — preference order:
+//   1. better-sqlite3 (npm, optionalDependency) — ships its own SQLite compiled
+//      with FTS5. A fallback for Node < 24, where the built-in may lack FTS5.
+//   2. node:sqlite (built-in, Node 22+ flagged / 24+ stable) — on Node 24+ this
+//      ships WITH FTS5 compiled in, so full-text search works with ZERO npm
+//      dependencies. Older bundles may not have it, so don't assume either way:
+//      we PROBE FTS5 capability once at require time (in-memory CREATE VIRTUAL
+//      TABLE ... USING fts5).
+//   3. JSON-only — linear scan over per-category JSON files. Fine up to a few
+//      thousand memories.
+//
+// All three paths satisfy the same minimal API: new DatabaseSync(path),
+// db.exec(sql), db.prepare(sql).run/get/all, db.close().
+//
+// NOTE: sqliteSupportsFts5 is a CAPABILITY PROBE, not a backend label. A prior
+// version hardcoded it false for node:sqlite — which produced a misleading
+// health report (search worked fine, but the report claimed FTS5 was
+// unavailable) and sent a whole work session down a phantom "mandatory npm
+// install" remediation. Probe; never assume.
+let DatabaseSync = null;
+let sqliteBackend = 'json-only';
+let sqliteSupportsFts5 = false;
+
+// Probe whether a DatabaseSync constructor can create an FTS5 virtual table.
+// Cheap (in-memory), runs once at require time, never throws to callers.
+function probeFts5(DS) {
+    let probe = null;
+    try {
+        probe = new DS(':memory:');
+        probe.exec('CREATE VIRTUAL TABLE _fts5_probe USING fts5(x)');
+        return true;
+    } catch {
+        return false;
+    } finally {
+        if (probe) { try { probe.close(); } catch { /* non-fatal */ } }
+    }
+}
+
+try {
+    const BetterSqlite3 = require('better-sqlite3');
+    // Adapter so callers keep using `new DatabaseSync(path)`.
+    DatabaseSync = function(dbPath) { return new BetterSqlite3(dbPath); };
+    sqliteBackend = 'better-sqlite3';
+    sqliteSupportsFts5 = true; // better-sqlite3 always bundles FTS5
+} catch {
+    try {
+        const { DatabaseSync: NodeDatabaseSync } = require('node:sqlite');
+        DatabaseSync = NodeDatabaseSync;
+        sqliteBackend = 'node:sqlite';
+        // Node 24+ bundles FTS5; older bundles may not. Probe, don't assume.
+        sqliteSupportsFts5 = probeFts5(NodeDatabaseSync);
+    } catch {
+        // Neither backend available — JSON-only mode.
+    }
+}
+
+class MemoryManager {
+    constructor() {
+        const projectRoot = process.env.CLAUDE_PROJECT_DIR || path.resolve(__dirname, '..', '..');
+        this.projectRoot = projectRoot;
+        this.memoriesDir = path.join(projectRoot, 'docs', '.output', 'memories');
+        this.dbPath = path.join(this.memoriesDir, 'memories.db');
+        this.categories = Object.values(CONSTANTS.MEMORY_CATEGORIES);
+        this.db = null;
+        this._activeDaysResolver = createActiveDaysResolver({ projectRoot });
+        // C5/F16: self-heal the store on construction — independent of SQLite
+        // availability. Previously the category dirs were only created lazily
+        // inside initDb() (write/search paths), so a brownfield onboard that
+        // never wrote a memory left the store unseeded and read-only tools
+        // (`report`/`lint`) ran against missing dirs. ensureDirs makes ANY
+        // MemoryManager access self-heal the 5 category dirs. The store is
+        // local-only/gitignored/regenerable, so creating empty dirs is harmless.
+        this.ensureDirs();
+    }
+
+    /**
+     * Self-heal the on-disk store: create memoriesDir + all 5 category dirs.
+     * No SQLite dependency — runs even in JSON-only mode. Idempotent.
+     */
+    ensureDirs() {
+        try {
+            fsSync.mkdirSync(this.memoriesDir, { recursive: true });
+            for (const category of this.categories) {
+                fsSync.mkdirSync(path.join(this.memoriesDir, category), { recursive: true });
+            }
+        } catch { /* best-effort — a read-only FS shouldn't crash construction */ }
+    }
+
+    /**
+     * Initialize SQLite database (lazy — called on first write or search)
+     */
+    initDb() {
+        if (this.db) return true;
+        if (!DatabaseSync) return false;
+
+        try {
+            this.ensureDirs();
+            this.db = new DatabaseSync(this.dbPath);
+            this.db.exec(`
+                CREATE TABLE IF NOT EXISTS memories (
+                    id TEXT PRIMARY KEY,
+                    category TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    metadata TEXT,
+                    created TEXT NOT NULL,
+                    updated TEXT NOT NULL,
+                    usage_count INTEGER DEFAULT 0,
+                    confidence REAL DEFAULT 1.0,
+                    importance INTEGER DEFAULT 3,
+                    invalid_at TEXT,
+                    superseded_by TEXT
+                );
+                CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+                    id, category, content, tokenize='porter'
+                );
+            `);
+            // Idempotent additive migrations for databases created before a column
+            // existed. ensureColumn is the SINGLE migration seam — every new column
+            // (ME-2.1 importance; ME-3.1 invalid_at/superseded_by; …) goes through
+            // it. Do NOT author a second idempotency strategy elsewhere.
+            this.ensureColumn('memories', 'importance', 'importance INTEGER DEFAULT 3');
+            this.ensureColumn('memories', 'invalid_at', 'invalid_at TEXT');
+            this.ensureColumn('memories', 'superseded_by', 'superseded_by TEXT');
+            return true;
+        } catch (e) {
+            // Close the handle if `new DatabaseSync()` succeeded but `exec()`
+            // threw (e.g. FTS5 not compiled in). Otherwise the file lock leaks
+            // and the db file is undeletable until process exit — surfaces on
+            // Windows as EPERM on tmp-dir cleanup in tests.
+            console.error('SQLite init failed (falling back to JSON-only):', e.message);
+            if (this.db) {
+                try { this.db.close(); } catch { /* non-fatal */ }
+            }
+            this.db = null;
+            return false;
+        }
+    }
+
+    /**
+     * Idempotent additive column migration. Checks PRAGMA table_info(table) for
+     * `column` and runs `ALTER TABLE ... ADD COLUMN ${ddl}` only if absent — never
+     * a blind catch-on-duplicate. Safe to call on every initDb; a no-op once the
+     * column exists. This is the contract every schema-adding story extends.
+     *
+     * @param {string} table  - table name (already trusted, internal use only)
+     * @param {string} column - the column to ensure exists
+     * @param {string} ddl    - the column definition for ADD COLUMN, e.g. 'importance INTEGER DEFAULT 3'
+     */
+    ensureColumn(table, column, ddl) {
+        if (!this.db) return;
+        try {
+            const cols = this.db.prepare(`PRAGMA table_info(${table})`).all();
+            if (cols.some((c) => c.name === column)) return; // already present — no-op
+            this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+        } catch (e) {
+            // Non-fatal: JSON remains the source of truth and reads default the
+            // missing column (e.g. importance ?? 3). A locked/old DB must not crash.
+            console.error(`ensureColumn(${table}.${column}) failed (non-fatal):`, e.message);
+        }
+    }
+
+    /**
+     * Upsert a memory into SQLite index
+     */
+    indexMemory(memory) {
+        if (!this.initDb()) return;
+        try {
+            // Upsert main table
+            const stmt = this.db.prepare(`
+                INSERT OR REPLACE INTO memories (id, category, content, metadata, created, updated, usage_count, confidence, importance, invalid_at, superseded_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            stmt.run(
+                memory.id, memory.category,
+                JSON.stringify(memory.content), JSON.stringify(memory.metadata),
+                memory.created, memory.updated,
+                memory.usage_count || 0, memory.metadata?.confidence ?? 1.0,
+                clampImportance(memory.importance ?? memory.content?.importance),
+                memory.invalid_at ?? null, memory.superseded_by ?? null
+            );
+
+            // Upsert FTS
+            this.db.prepare('DELETE FROM memories_fts WHERE id = ?').run(memory.id);
+            const ftsStmt = this.db.prepare(`
+                INSERT INTO memories_fts (id, category, content) VALUES (?, ?, ?)
+            `);
+            ftsStmt.run(memory.id, memory.category, JSON.stringify(memory.content));
+        } catch (e) {
+            // Non-fatal — JSON is the source of truth
+            console.error('SQLite index error:', e.message);
+        }
+    }
+
+    /**
+     * Remove a memory from SQLite index
+     */
+    deindexMemory(id) {
+        if (!this.db) return;
+        try {
+            this.db.prepare('DELETE FROM memories WHERE id = ?').run(id);
+            this.db.prepare('DELETE FROM memories_fts WHERE id = ?').run(id);
+        } catch {
+            // Non-fatal
+        }
+    }
+
+    static idToFilename(id) {
+        return id.replace(/_/g, '-');
+    }
+
+    static filenameToId(filename) {
+        return filename.replace(/-/g, '_').replace(/\.json$/, '');
+    }
+
+    /**
+     * Get count of memories in a category
+     */
+    async getMemoryCount(category) {
+        const dir = path.join(this.memoriesDir, category);
+        try {
+            const files = await fs.readdir(dir);
+            return files.filter(f => f.endsWith('.json')).length;
+        } catch {
+            return 0;
+        }
+    }
+
+    /**
+     * Prune stale memories — removes memories older than maxAgeDays
+     * with confidence below minConfidence
+     */
+    async pruneStaleMemories(category, maxAgeDays = PRUNE_MIN_AGE_DAYS, minConfidence = PRUNE_MIN_CONFIDENCE) {
+        const dir = path.join(this.memoriesDir, category);
+        let pruned = 0;
+        try {
+            const files = await fs.readdir(dir);
+            for (const file of files) {
+                if (!file.endsWith('.json')) continue;
+                const filePath = path.join(dir, file);
+                try {
+                    const raw = await fs.readFile(filePath, 'utf-8');
+                    const memory = JSON.parse(raw);
+                    const activeDays = this.getActiveDaysSince(memory.updated);
+                    const confidence = memory.metadata?.confidence ?? 1.0;
+                    if (activeDays > maxAgeDays && confidence < minConfidence) {
+                        await fs.unlink(filePath);
+                        this.deindexMemory(memory.id);
+                        pruned++;
+                        console.log(`🗑️  Pruned stale memory: ${category}/${file} (${Math.round(activeDays)} active days, confidence ${confidence})`);
+                    }
+                } catch {
+                    // Skip unreadable files
+                }
+            }
+        } catch {
+            // Category dir doesn't exist — nothing to prune
+        }
+        return pruned;
+    }
+
+    /**
+     * Create a new memory (JSON + SQLite)
+     */
+    async createMemory(category, id, content) {
+        if (!this.categories.includes(category)) {
+            throw new Error(`Invalid category: ${category}`);
+        }
+
+        // Memory explosion guard
+        const count = await this.getMemoryCount(category);
+        if (count >= MAX_MEMORIES_PER_CATEGORY * PRUNE_THRESHOLD_PERCENT) {
+            const pruned = await this.pruneStaleMemories(category);
+            if (pruned > 0) {
+                console.log(`⚠️  Memory guard: auto-pruned ${pruned} stale memories from ${category}`);
+            }
+        }
+        const currentCount = await this.getMemoryCount(category);
+        if (currentCount >= MAX_MEMORIES_PER_CATEGORY) {
+            console.log(`⛔ Memory guard: ${category} has ${currentCount} entries (max ${MAX_MEMORIES_PER_CATEGORY}). Skipping write for ${id}. Run prune or increase limit.`);
+            return null;
+        }
+
+        const TYPE_MAP = {
+            patterns: 'pattern',
+            constraints: 'constraint',
+            decisions: 'decision',
+            workflows: 'workflow',
+            'rejected-approaches': 'rejected-approach',
+        };
+        const memory = {
+            id,
+            type: TYPE_MAP[category] || category.slice(0, -1),
+            category,
+            created: new Date().toISOString(),
+            updated: new Date().toISOString(),
+            usage_count: 0,
+            // Write-time importance (1–5) — the retention floor. Read from the
+            // author-supplied content.importance, clamped; defaults to 3. Stored
+            // top-level (mirrors usage_count) so decay/ranking read it without a
+            // content round-trip; also persisted to the importance SQLite column.
+            importance: clampImportance(content.importance ?? IMPORTANCE_DEFAULT),
+            content,
+            metadata: {
+                sessions: [],
+                agents: [],
+                confidence: 1.0
+            }
+        };
+
+        // Write JSON (source of truth)
+        const filename = MemoryManager.idToFilename(id);
+        const categoryDir = path.join(this.memoriesDir, category);
+        await fs.mkdir(categoryDir, { recursive: true });
+        const filePath = path.join(categoryDir, `${filename}.json`);
+        await fs.writeFile(filePath, JSON.stringify(memory, null, 2));
+
+        // Index in SQLite
+        this.indexMemory(memory);
+
+        // Write-time supersession detection (ME-3.2) — cheap LLM-free FTS overlap
+        // against existing same-category memories. FLAG ONLY: attaches candidate
+        // predecessor ids to the returned object so the Main Agent can confirm a
+        // supersede at /end. Never auto-supersedes. Transient (not written to JSON).
+        const candidates = this.detectOverlap(category, content, id);
+        if (candidates.length > 0) memory.supersedes_candidates = candidates;
+
+        console.log(`✅ Memory created: ${category}/${id}`);
+        return memory;
+    }
+
+    /**
+     * Cheap, LLM-free write-time overlap detection: FTS5-match the new content's
+     * terms against EXISTING live same-category memories. Returns likely-superseded
+     * predecessor ids (flag only — the caller decides whether to supersede).
+     *
+     * @param {string} category
+     * @param {object} contentObj - the new memory's content
+     * @param {string} excludeId  - the new memory's own id (exclude self)
+     * @returns {string[]} predecessor ids (empty if none / no FTS / error)
+     */
+    detectOverlap(category, contentObj, excludeId) {
+        if (!this.initDb()) return [];
+        const text = (contentObj && contentObj.description) || (contentObj ? JSON.stringify(contentObj) : '');
+        const q = buildFtsQuery(text);
+        if (!q) return [];
+        try {
+            const rows = this.db.prepare(`
+                SELECT m.id
+                FROM memories_fts fts
+                JOIN memories m ON fts.id = m.id
+                WHERE memories_fts MATCH ?
+                  AND m.category = ?
+                  AND m.id != ?
+                  AND m.invalid_at IS NULL
+                ORDER BY rank
+                LIMIT 5
+            `).all(q, category, excludeId);
+            return rows.map(r => r.id);
+        } catch {
+            // FTS unavailable (node:sqlite without fts5) or query error — no flag
+            return [];
+        }
+    }
+
+    /**
+     * Supersede an old memory with a newer one: stamp invalid_at + superseded_by,
+     * deindex from active FTS (so it stops surfacing in current-state search), but
+     * keep the JSON + main db row as history (readable via includeSuperseded).
+     * Idempotent — a re-run keeps the original invalid_at and returns success.
+     * Flag-then-confirm: this is the CONFIRM half (the Main Agent calls it).
+     *
+     * @param {string} category
+     * @param {string} oldId
+     * @param {string} newId
+     * @returns {Promise<{superseded: boolean, error?: string, invalid_at?: string}>}
+     */
+    async supersede(category, oldId, newId) {
+        if (!this.categories.includes(category)) {
+            return { superseded: false, error: `Invalid category: ${category}` };
+        }
+        const memory = await this.readMemory(category, oldId);
+        if (!memory) {
+            return { superseded: false, error: `Memory not found: ${category}/${oldId}` };
+        }
+
+        // Idempotent: keep the original invalid_at if already superseded.
+        const invalidAt = memory.invalid_at || new Date().toISOString();
+        memory.invalid_at = invalidAt;
+        memory.superseded_by = newId;
+
+        // Persist to JSON (source of truth)
+        const filename = MemoryManager.idToFilename(oldId);
+        const filePath = path.join(this.memoriesDir, category, `${filename}.json`);
+        await fs.writeFile(filePath, JSON.stringify(memory, null, 2));
+
+        // Deindex from active FTS + stamp the db row (kept for history).
+        if (this.initDb()) {
+            try {
+                this.db.prepare('DELETE FROM memories_fts WHERE id = ?').run(oldId);
+                this.db.prepare('UPDATE memories SET invalid_at = ?, superseded_by = ? WHERE id = ?')
+                    .run(invalidAt, newId, oldId);
+            } catch (e) {
+                console.error('supersede: SQLite update failed (JSON already stamped):', e.message);
+            }
+        }
+
+        return { superseded: true, category, oldId, newId, invalid_at: invalidAt };
+    }
+
+    /**
+     * Read a memory from JSON (source of truth)
+     */
+    async readMemory(category, id) {
+        const hyphenated = MemoryManager.idToFilename(id);
+        let filePath = path.join(this.memoriesDir, category, `${hyphenated}.json`);
+
+        try {
+            const content = await fs.readFile(filePath, 'utf-8');
+            return JSON.parse(content);
+        } catch (error) {
+            if (error.code === 'ENOENT') {
+                filePath = path.join(this.memoriesDir, category, `${id}.json`);
+                try {
+                    const content = await fs.readFile(filePath, 'utf-8');
+                    return JSON.parse(content);
+                } catch {
+                    return null;
+                }
+            }
+            console.error(`❌ Error reading memory: ${category}/${id}`, error.message);
+            return null;
+        }
+    }
+
+    /**
+     * Update a memory (JSON + SQLite)
+     */
+    async updateMemory(category, id, updates) {
+        const memory = await this.readMemory(category, id);
+        if (!memory) return null;
+
+        if (updates.content) {
+            memory.content = { ...memory.content, ...updates.content };
+        }
+        if (updates.metadata) {
+            memory.metadata = { ...memory.metadata, ...updates.metadata };
+        }
+
+        memory.updated = new Date().toISOString();
+        // ME-4.1: updateMemory no longer bumps usage_count. A write (metadata
+        // patch, echo-boost, confidence update) is NOT a genuine recall — the
+        // honest usage increment moved to searchMemories(). Keeping it here
+        // over-credited incidental writes and made usage a one-way ratchet.
+        // MP-2.1: explicit access timestamp — lets analytics attribute a hit to an
+        // injected memory that was later updated within the same session window.
+        memory.last_accessed = memory.updated;
+
+        // Write JSON
+        const filename = MemoryManager.idToFilename(id);
+        const filePath = path.join(this.memoriesDir, category, `${filename}.json`);
+        await fs.writeFile(filePath, JSON.stringify(memory, null, 2));
+
+        // Re-index in SQLite
+        this.indexMemory(memory);
+
+        console.log(`✅ Memory updated: ${category}/${id}`);
+        return memory;
+    }
+
+    /**
+     * List all memories in a category.
+     *
+     * Supersession (ME-3.1): memories with a non-null `invalid_at` are hidden by
+     * default — this is the single chokepoint every current-state consumer flows
+     * through (analytics, lint, prune, search JSON-fallback). Pass
+     * `{ includeSuperseded: true }` to read history (audit, rebuildIndex). Legacy
+     * memories with no `invalid_at` field default to live (default-on-read).
+     *
+     * @param {string} category
+     * @param {{ includeSuperseded?: boolean }} [opts]
+     */
+    async listMemories(category, opts = {}) {
+        const { includeSuperseded = false } = opts;
+        const dir = path.join(this.memoriesDir, category);
+        try {
+            const files = await fs.readdir(dir);
+            const memories = [];
+
+            for (const file of files) {
+                if (file.endsWith('.json')) {
+                    const fileId = file.replace('.json', '');
+                    const memory = await this.readMemory(category, fileId);
+                    if (memory) {
+                        // Hide superseded memories from current-state queries unless
+                        // explicitly asked for. invalid_at absent/null = live.
+                        if (memory.invalid_at && !includeSuperseded) continue;
+                        memories.push({
+                            id: memory.id,
+                            created: memory.created,
+                            updated: memory.updated,
+                            usage_count: memory.usage_count,
+                            confidence: memory.metadata?.confidence ?? 1.0,
+                            // Backfill-on-read: legacy memories (and any written
+                            // before this column) read back at the default of 3.
+                            importance: clampImportance(memory.importance ?? memory.content?.importance),
+                            // Supersession (ME-3.1) — null/absent = live. Surfaced
+                            // so ME-3.2 analytics can count superseded entries.
+                            invalid_at: memory.invalid_at ?? null,
+                            superseded_by: memory.superseded_by ?? null,
+                            decayed_confidence: this.calculateDecayedConfidence(memory)
+                        });
+                    }
+                }
+            }
+
+            return memories;
+        } catch {
+            return [];
+        }
+    }
+
+    /**
+     * Search memories — uses SQLite FTS5 when available, falls back to JSON scan.
+     * Supersession (ME-3.1): superseded memories (invalid_at set) are excluded by
+     * default on both paths; pass `{ includeSuperseded: true }` to read history.
+     *
+     * @param {string} searchTerm
+     * @param {{ includeSuperseded?: boolean }} [opts]
+     */
+    async searchMemories(searchTerm, opts = {}) {
+        const { includeSuperseded = false } = opts;
+        // Try SQLite FTS5 first
+        if (this.initDb()) {
+            try {
+                const stmt = this.db.prepare(`
+                    SELECT m.id, m.category, m.content, m.metadata, m.confidence, m.usage_count, m.updated, m.importance,
+                           rank
+                    FROM memories_fts fts
+                    JOIN memories m ON fts.id = m.id
+                    WHERE memories_fts MATCH ?
+                      ${includeSuperseded ? '' : 'AND m.invalid_at IS NULL'}
+                    ORDER BY rank
+                    LIMIT 20
+                `);
+                const rows = stmt.all(buildFtsQuery(searchTerm));
+                if (rows.length > 0) {
+                    const mapped = rows.map(row => {
+                        const importance = clampImportance(row.importance);
+                        // Reconstruct enough of the memory shape to compute decay
+                        // (importance included so the floor applies on this path too)
+                        const mockMemory = {
+                            updated: row.updated,
+                            usage_count: row.usage_count || 0,
+                            importance,
+                            metadata: { confidence: row.confidence ?? 1.0 }
+                        };
+                        return {
+                            category: row.category,
+                            id: row.id,
+                            // ME-2.2 — importance term (+4..+20) mirrors the JSON path
+                            relevance: Math.abs(row.rank) * 10 + (row.confidence || 0) * 10 + (row.usage_count || 0) * 5 + importance * 4,
+                            confidence: row.confidence ?? 1.0,
+                            decayed_confidence: this.calculateDecayedConfidence(mockMemory)
+                        };
+                    });
+                    await this._recordRecall(mapped);
+                    this._logMemoryAccess(mapped);
+                    return mapped;
+                }
+            } catch {
+                // FTS query failed — fall through to JSON scan
+            }
+        }
+
+        // Fallback: JSON scan — listMemories already applies the supersession
+        // filter, so pass the opt through to keep both paths consistent.
+        const results = [];
+        for (const category of this.categories) {
+            const memories = await this.listMemories(category, { includeSuperseded });
+            for (const memSummary of memories) {
+                const memory = await this.readMemory(category, memSummary.id);
+                if (memory) {
+                    const content = JSON.stringify(memory.content).toLowerCase();
+                    if (content.includes(searchTerm.toLowerCase())) {
+                        results.push({
+                            category,
+                            id: memory.id,
+                            relevance: this.calculateRelevance(memory, searchTerm),
+                            confidence: memory.metadata?.confidence ?? 1.0,
+                            decayed_confidence: this.calculateDecayedConfidence(memory)
+                        });
+                    }
+                }
+            }
+        }
+        const sorted = results.sort((a, b) => b.relevance - a.relevance);
+        await this._recordRecall(sorted);
+        this._logMemoryAccess(sorted);
+        return sorted;
+    }
+
+    /**
+     * Record genuine recalls (ME-4.1): bump usage_count by exactly 1 for each
+     * recalled memory and persist to BOTH the JSON source of truth and the SQLite
+     * row (write-through — the SQLite search path returns a throwaway row object,
+     * so we re-read the JSON and UPDATE the column rather than mutating a copy).
+     * This is the ONLY place usage_count grows now; passive injection never calls
+     * search, so injection reads still leave no signal (honest lower bound).
+     *
+     * @param {Array<{category: string, id: string}>} results
+     */
+    async _recordRecall(results) {
+        for (const r of results) {
+            const memory = await this.readMemory(r.category, r.id);
+            if (!memory) continue;
+            memory.usage_count = (memory.usage_count || 0) + 1;
+            const filename = MemoryManager.idToFilename(r.id);
+            const filePath = path.join(this.memoriesDir, r.category, `${filename}.json`);
+            try {
+                await fs.writeFile(filePath, JSON.stringify(memory, null, 2));
+            } catch (e) {
+                console.error(`_recordRecall: JSON write failed for ${r.category}/${r.id}:`, e.message);
+                continue;
+            }
+            if (this.db) {
+                try {
+                    this.db.prepare('UPDATE memories SET usage_count = ? WHERE id = ?')
+                        .run(memory.usage_count, r.id);
+                } catch { /* non-fatal: JSON is the source of truth */ }
+            }
+        }
+    }
+
+    /**
+     * MP-2.1: record a recall (search) as a `memory_access` telemetry event — the
+     * meaningful "the agent recalled this memory to use it" signal that gives
+     * hit-rate analysis its numerator. Best-effort: a telemetry failure must never
+     * break search, so the whole write is wrapped and swallowed. Called once from
+     * whichever search path returns (SQLite or JSON fallback) — it logs the ids of
+     * that path's results; a no-match search logs nothing (no signal, no numerator).
+     *
+     * @param {Array<{id: string}>} results - the search results about to be returned
+     * @returns {void}
+     */
+    _logMemoryAccess(results) {
+        try {
+            if (!Array.isArray(results) || results.length === 0) return;
+            const ts = new Date().toISOString();
+            const jsonlPath = path.join(this.projectRoot, 'docs', '.output', 'telemetry', 'memory-injection.jsonl');
+            appendJsonl(jsonlPath, {
+                timestamp: ts,
+                type: 'memory_access',
+                accessed_ids: results.map(r => r.id),
+                session_proxy: ts.slice(0, 16),   // ISO-8601 truncated to the minute — session join key
+            });
+        } catch {
+            // best-effort — never break search
+        }
+    }
+
+    /**
+     * Count active work days (days with git commits) between a date and now.
+     * Delegates to the shared resolver; falls back to calendar days when git
+     * is unavailable. Per-instance cache — one git log invocation per manager.
+     */
+    getActiveDaysSince(sinceDate) {
+        return this._activeDaysResolver.getActiveDaysSince(sinceDate);
+    }
+
+    /**
+     * Calculate decayed confidence for a memory — read-time only, not stored.
+     * Thin adapter over _lib/memory-decay.js — extracts the memory's shape into
+     * the shared function's parameter contract. Formula lives in the shared lib.
+     */
+    calculateDecayedConfidence(memory) {
+        const base = calcDecay({
+            confidence: memory.metadata?.confidence ?? 1.0,
+            category: memory.category,
+            usageCount: memory.usage_count || 0,
+            updated: memory.updated,
+            activeDays: this._activeDaysResolver.getActiveDaysSince(memory.updated),
+        });
+        // ME-2.2 importance retention floor — an ADDED factor on top of the
+        // active-work-day curve (the curve in _lib stays untouched). Normalized
+        // around IMPORTANCE_DEFAULT (3): importance 3 → factor 1.0 (default and
+        // legacy memories unchanged), importance ≤2 → factor <1 so a low-value
+        // never-recalled memory can cross STALE_THRESHOLD even on an actively
+        // committed repo, importance ≥4 → factor >1 to resist decay. Capped at 1.0.
+        const importance = clampImportance(memory.importance ?? memory.content?.importance);
+        const importanceFactor = importance / IMPORTANCE_DEFAULT;
+        return Math.min(1.0, base * importanceFactor);
+    }
+
+    /**
+     * Boost confidence of memories whose keywords appear in recent commit subjects.
+     * Concepts echoed by ongoing work gain confidence, counterbalancing monotonic decay.
+     * Idempotent: stores `metadata.lastEchoBoostCommit` so re-running against unchanged
+     * git head is a no-op.
+     *
+     * @param {Object} opts
+     * @param {number} [opts.limit=50] - how many recent commits to scan
+     * @param {number} [opts.boostAmount] - defaults to MEMORY_DECAY.ECHO_BOOST (0.05)
+     * @param {boolean} [opts.dryRun=false] - when true, returns report without writing
+     * @returns {Promise<{scanned: number, boosted: Array, skipped: Array}>}
+     */
+    async boostFromGitLog({ limit = 50, boostAmount, dryRun = false } = {}) {
+        const { MEMORY_DECAY } = require('./constants');
+        if (boostAmount === undefined) boostAmount = MEMORY_DECAY.ECHO_BOOST;
+
+        // 1. Read commit log — %H (full hash) + %s (subject), most-recent first
+        let commits = [];
+        try {
+            const raw = execSync(`git log --format=%H%x09%s -${limit}`, {
+                cwd: this.projectRoot,
+                encoding: 'utf8',
+                timeout: 5000,
+                stdio: ['pipe', 'pipe', 'pipe'],
+                windowsHide: true,
+            });
+            commits = raw.trim().split('\n').filter(Boolean).map(line => {
+                const tab = line.indexOf('\t');
+                if (tab === -1) return null;
+                return { hash: line.slice(0, tab), subject: line.slice(tab + 1).toLowerCase() };
+            }).filter(Boolean);
+        } catch (e) {
+            return { scanned: 0, boosted: [], skipped: [], error: 'git log failed: ' + e.message };
+        }
+
+        if (commits.length === 0) {
+            return { scanned: 0, boosted: [], skipped: [] };
+        }
+
+        const latestHash = commits[0].hash;
+        const report = { scanned: 0, boosted: [], skipped: [] };
+
+        const STOPWORDS = new Set(['the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'but', 'not', 'have', 'has', 'was', 'were', 'will', 'can', 'its', 'their', 'them', 'they', 'you', 'your', 'our', 'one', 'two', 'all', 'any', 'been', 'into', 'than', 'then', 'what', 'when', 'which', 'who', 'how', 'why', 'also', 'just', 'some', 'more', 'very']);
+
+        // 2. Iterate all categories + memories
+        for (const category of this.categories) {
+            const summaries = await this.listMemories(category);
+            for (const summary of summaries) {
+                report.scanned++;
+                const memory = await this.readMemory(category, summary.id);
+                if (!memory) continue;
+
+                const lastBoost = memory.metadata?.lastEchoBoostCommit;
+
+                // 3. Idempotence: if stored marker equals newest hash, no new commits
+                if (lastBoost === latestHash) {
+                    report.skipped.push({ category, id: memory.id, reason: 'no-new-commits' });
+                    continue;
+                }
+
+                // 4. Extract keywords from concept content (mirror extractKeywords rules)
+                const contentText = JSON.stringify(memory.content || {}).toLowerCase();
+                const keywords = new Set();
+                for (const token of contentText.split(/\W+/)) {
+                    if (token.length > 2 && !STOPWORDS.has(token)) keywords.add(token);
+                }
+
+                // 5. Only consider commits newer than the stored marker (inclusive newest; exclusive of marker)
+                // commits[] is most-recent first — everything UP TO (but not including) lastBoost is "new"
+                let relevantCommits = commits;
+                if (lastBoost) {
+                    const cutoff = commits.findIndex(c => c.hash === lastBoost);
+                    if (cutoff !== -1) relevantCommits = commits.slice(0, cutoff);
+                }
+                if (relevantCommits.length === 0) {
+                    report.skipped.push({ category, id: memory.id, reason: 'no-new-commits' });
+                    continue;
+                }
+
+                // 6. Match: any keyword in any commit subject (word-boundary, case-insensitive)
+                const matchedKeywords = [];
+                const matchedCommits = [];
+                for (const kw of keywords) {
+                    const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const re = new RegExp('\\b' + escaped + '\\b', 'i');
+                    let matchedAny = false;
+                    for (const c of relevantCommits) {
+                        if (re.test(c.subject)) {
+                            matchedAny = true;
+                            if (!matchedCommits.some(m => m.hash === c.hash)) {
+                                matchedCommits.push(c);
+                            }
+                        }
+                    }
+                    if (matchedAny) matchedKeywords.push(kw);
+                }
+
+                if (matchedKeywords.length === 0) {
+                    report.skipped.push({ category, id: memory.id, reason: 'no-match' });
+                    continue;
+                }
+
+                // 7. Boost
+                const oldConf = memory.metadata?.confidence ?? 1.0;
+                const newConf = Math.min(1.0, oldConf + boostAmount);
+
+                if (!dryRun && newConf > oldConf) {
+                    await this.updateMemory(category, memory.id, {
+                        metadata: { confidence: newConf, lastEchoBoostCommit: latestHash }
+                    });
+                } else if (!dryRun && newConf === oldConf) {
+                    // Already at cap — still update marker to prevent re-scanning same commits
+                    await this.updateMemory(category, memory.id, {
+                        metadata: { lastEchoBoostCommit: latestHash }
+                    });
+                }
+
+                report.boosted.push({
+                    category,
+                    id: memory.id,
+                    keywords: matchedKeywords.slice(0, 5),
+                    commits: matchedCommits.slice(0, 3).map(c => c.subject.slice(0, 50)),
+                    oldConf,
+                    newConf
+                });
+            }
+        }
+
+        return report;
+    }
+
+    /**
+     * Ingest auto-memory markdown files (`.claude/agent-memory/{agent}/*.md`)
+     * into the structured JSON memory store. Parses YAML frontmatter for
+     * `name`, `description`, `type`; stores the full markdown body as a
+     * `body` field in the created memory's content object.
+     *
+     * Accepts either a single `.md` file path OR a directory (walked recursively).
+     * Skips `MEMORY.md` index files. Skips memories whose id already exists
+     * (no overwrite). Dedup is by (category, id).
+     *
+     * @param {string} sourcePath - file or directory
+     * @param {{dryRun?: boolean}} [options]
+     * @returns {Promise<{ingested: number, skipped: number, errors: Array<{file: string, reason: string}>}>}
+     */
+    async ingestAgentMemory(sourcePath, options = {}) {
+        return ingestAgentMemoryLib(sourcePath, {
+            dryRun: options.dryRun ?? false,
+            readMemory:   (cat, id) => this.readMemory(cat, id),
+            createMemory: (cat, id, content) => this.createMemory(cat, id, content),
+        });
+    }
+
+    // Legacy alias — tests or external callers may reach into this private helper
+    async _findMarkdownFiles(sourcePath) {
+        return ingestFindMarkdownFiles(sourcePath);
+    }
+
+    /**
+     * Parse YAML frontmatter from a markdown string. Returns
+     * `{ frontmatter: {...}, body: string }` or `null` if no frontmatter.
+     * Thin adapter over _lib/frontmatter.js with `returnBody: true`.
+     */
+    static _parseFrontmatter(raw) {
+        return parseFm(raw, { returnBody: true });
+    }
+
+    // Legacy static aliases — delegate to _lib/memory-ingest for backward compat
+    static _typeToCategory(type) {
+        return ingestTypeToCategory(type);
+    }
+
+    static _idFromFilename(filename) {
+        return ingestIdFromFilename(filename);
+    }
+
+    /**
+     * Calculate relevance score (for JSON fallback search)
+     */
+    calculateRelevance(memory, searchTerm) {
+        let score = 0;
+        const content = JSON.stringify(memory.content).toLowerCase();
+        const term = searchTerm.toLowerCase();
+
+        const matches = (content.match(new RegExp(term, 'g')) || []).length;
+        score += matches * 10;
+
+        const daysSinceUpdate = (Date.now() - new Date(memory.updated)) / (1000 * 60 * 60 * 24);
+        if (daysSinceUpdate < 7) score += 20;
+        else if (daysSinceUpdate < 30) score += 10;
+
+        score += memory.usage_count * 5;
+        score += memory.metadata.confidence * 10;
+        // ME-2.2 — importance term (1–5 → +4..+20) so a higher-importance memory
+        // scores strictly higher than an otherwise-identical lower-importance one.
+        score += clampImportance(memory.importance ?? memory.content?.importance) * 4;
+
+        return score;
+    }
+
+    /**
+     * Rebuild SQLite index from JSON files (repair command)
+     */
+    async rebuildIndex() {
+        if (!this.initDb()) {
+            console.log('SQLite not available — nothing to rebuild.');
+            return;
+        }
+
+        this.db.exec('DELETE FROM memories');
+        this.db.exec('DELETE FROM memories_fts');
+
+        let count = 0;
+        for (const category of this.categories) {
+            // Re-index EVERYTHING including superseded memories so their rows
+            // (with invalid_at) persist in the db for includeSuperseded history.
+            const memories = await this.listMemories(category, { includeSuperseded: true });
+            for (const memSummary of memories) {
+                const memory = await this.readMemory(category, memSummary.id);
+                if (memory) {
+                    this.indexMemory(memory);
+                    count++;
+                }
+            }
+        }
+        console.log(`✅ Rebuilt SQLite index: ${count} memories indexed.`);
+    }
+
+    /**
+     * Run all 7 memory lint checks and return a structured health report.
+     */
+    /**
+     * Run all 7 memory lint checks and return a structured health report.
+     * Thin wrapper: assembles {category, summary, full} tuples then delegates
+     * to _lib/memory-lint.js. Keeps per-instance decay resolver wired in.
+     */
+    async lintMemories() {
+        const allMemories = [];
+        for (const category of this.categories) {
+            const summaries = await this.listMemories(category);
+            for (const summary of summaries) {
+                const full = await this.readMemory(category, summary.id);
+                if (full) {
+                    allMemories.push({ category, summary, full });
+                }
+            }
+        }
+
+        return lintMemoriesLib(allMemories, {
+            calculateDecayedConfidence: (memory) => this.calculateDecayedConfidence(memory),
+            categories: this.categories,
+            maxPerCategory: MAX_MEMORIES_PER_CATEGORY,
+        });
+    }
+
+    async generateReport() {
+        const report = {
+            timestamp: new Date().toISOString(),
+            storage: {
+                json: this.memoriesDir,
+                sqlite: DatabaseSync ? this.dbPath : 'not available',
+                sqliteBackend,
+                sqliteSupportsFts5
+            },
+            categories: {}
+        };
+
+        for (const category of this.categories) {
+            const memories = await this.listMemories(category);
+            const { MEMORY_DECAY } = require('./constants');
+            const staleCount = memories.filter(m => m.decayed_confidence < MEMORY_DECAY.STALE_THRESHOLD).length;
+            const archiveCandidates = memories.filter(m => m.decayed_confidence < MEMORY_DECAY.ARCHIVE_THRESHOLD).length;
+            report.categories[category] = {
+                count: memories.length,
+                total_usage: memories.reduce((sum, m) => sum + m.usage_count, 0),
+                avg_confidence: memories.reduce((sum, m) => sum + m.confidence, 0) / memories.length || 0,
+                stale_count: staleCount,
+                archive_candidates: archiveCandidates,
+                memories: memories
+            };
+        }
+
+        const allCategoryStats = Object.values(report.categories);
+        report.summary = {
+            total_memories: allCategoryStats.reduce((sum, c) => sum + c.count, 0),
+            most_used_category: Object.entries(report.categories)
+                .sort((a, b) => b[1].total_usage - a[1].total_usage)[0]?.[0],
+            total_stale: allCategoryStats.reduce((sum, c) => sum + c.stale_count, 0),
+            total_archive_candidates: allCategoryStats.reduce((sum, c) => sum + c.archive_candidates, 0)
+        };
+
+        return report;
+    }
+
+    /**
+     * MP-3.1: read the injection/access telemetry stream (memory-injection.jsonl)
+     * and split it by event type. Best-effort — a missing or unreadable file
+     * yields empty arrays so analytics degrades gracefully rather than throwing.
+     *
+     * @returns {{ injections: object[], accesses: object[], hasLines: boolean }}
+     */
+    _readInjectionTelemetry() {
+        const logPath = path.join(this.projectRoot, 'docs', '.output', 'telemetry', 'memory-injection.jsonl');
+        try {
+            if (!fsSync.existsSync(logPath)) {
+                return { injections: [], accesses: [], hasLines: false };
+            }
+            const lines = fsSync.readFileSync(logPath, 'utf8').split('\n').filter(l => l.trim());
+            const injections = [];
+            const accesses = [];
+            for (const line of lines) {
+                let ev;
+                try { ev = JSON.parse(line); } catch { continue; }
+                if (ev.type === 'memory_injection') injections.push(ev);
+                else if (ev.type === 'memory_access') accesses.push(ev);
+            }
+            return { injections, accesses, hasLines: lines.length > 0 };
+        } catch {
+            return { injections: [], accesses: [], hasLines: false };
+        }
+    }
+
+    /**
+     * MP-3.1: performance/usage analytics — the complement to generateReport()
+     * (inventory) and lintMemories() (hygiene). Returns a structured object;
+     * formatting lives in the CLI `analytics` case. Sections:
+     *   a) cap_utilization  — per-category {count, cap, pct_full, near_limit}
+     *   b) decay            — stale / archive-candidate totals
+     *   c) usage            — never-used count + top-5 by usage_count
+     *   d) prune            — stale AND usage_count===0, projected store size
+     *   e) injection        — avg injected_count, default_limit, decayed-conf "cliff"
+     *   f) hit_rate         — fraction of injected_ids later recalled/updated.
+     *                          LOWER BOUND — implicit reads of an injected memory
+     *                          leave no signal, so true usefulness is undercounted.
+     *
+     * @param {{ recentInjections?: number }} [opts]
+     * @returns {Promise<object>}
+     */
+    async generateAnalytics({ recentInjections = 50 } = {}) {
+        const { MEMORY_DECAY } = require('./constants');
+        const cap = MAX_MEMORIES_PER_CATEGORY;
+        const defaultLimit = CONSTANTS.MEMORY_FILTERS.DEFAULT_LIMIT;
+
+        const capUtilization = {};
+        const allUsage = [];        // { category, id, usage_count }
+        const allDecayed = [];      // decayed_confidence values (for the cliff)
+        const pruneCandidates = []; // stale AND usage_count === 0
+        const deadWeightCandidates = []; // never-used AND exposed past EXPOSURE_MIN_ACTIVE_DAYS (decay-independent)
+        const idLastAccessed = {};  // id -> last_accessed ISO (for hit-rate)
+        let totalMemories = 0;
+        let totalNeverUsed = 0;
+        let totalStale = 0;
+        let totalArchive = 0;
+        let totalSuperseded = 0;
+
+        for (const category of this.categories) {
+            // One pass: read all (including superseded) so we can both count the
+            // superseded entries (ME-3.2) and run the existing active-only stats.
+            const withSuperseded = await this.listMemories(category, { includeSuperseded: true });
+            const memories = withSuperseded.filter(m => !m.invalid_at);
+            totalSuperseded += withSuperseded.length - memories.length;
+            const count = memories.length;
+            totalMemories += count;
+
+            const stale = memories.filter(m => m.decayed_confidence < MEMORY_DECAY.STALE_THRESHOLD).length;
+            const archive = memories.filter(m => m.decayed_confidence < MEMORY_DECAY.ARCHIVE_THRESHOLD).length;
+            const neverUsed = memories.filter(m => (m.usage_count || 0) === 0).length;
+            totalStale += stale;
+            totalArchive += archive;
+            totalNeverUsed += neverUsed;
+
+            const pctFull = cap > 0 ? count / cap : 0;
+            capUtilization[category] = {
+                count,
+                cap,
+                pct_full: Number(pctFull.toFixed(3)),
+                near_limit: pctFull >= 0.8,
+                stale_count: stale,
+                archive_candidates: archive,
+                never_used: neverUsed,
+            };
+
+            for (const m of memories) {
+                allUsage.push({ category, id: m.id, usage_count: m.usage_count || 0 });
+                allDecayed.push(m.decayed_confidence);
+                if (m.decayed_confidence < MEMORY_DECAY.STALE_THRESHOLD && (m.usage_count || 0) === 0) {
+                    pruneCandidates.push({ category, id: m.id, decayed_confidence: m.decayed_confidence });
+                }
+                // Decay-independent dead-weight: never recalled AND exposed to enough
+                // active work-days since CREATION (not update) to have earned a recall.
+                // Keys off `created` so it catches memories that decay can never reach
+                // on an actively-committed project. usage_count is a LOWER BOUND.
+                if ((m.usage_count || 0) === 0) {
+                    const activeDaysSinceCreated = this.getActiveDaysSince(m.created);
+                    if (activeDaysSinceCreated >= EXPOSURE_MIN_ACTIVE_DAYS) {
+                        deadWeightCandidates.push({
+                            category,
+                            id: m.id,
+                            active_days_since_created: activeDaysSinceCreated,
+                            decayed_confidence: m.decayed_confidence,
+                        });
+                    }
+                }
+                // last_accessed lives in the full memory JSON, not the summary
+                const full = await this.readMemory(category, m.id);
+                if (full && full.last_accessed) idLastAccessed[m.id] = full.last_accessed;
+            }
+        }
+
+        const topUsed = allUsage
+            .slice()
+            .sort((a, b) => b.usage_count - a.usage_count)
+            .slice(0, 5);
+
+        // --- injection economics + hit-rate (read telemetry) ---
+        // `hasLines` = the file had any parseable events. The public `has_telemetry`
+        // below is stricter (needs >=1 injection event) — a file of only
+        // memory_access events shouldn't claim injection telemetry exists.
+        const { injections, accesses, hasLines } = this._readInjectionTelemetry();
+
+        // (e) injection economics
+        const avgInjected = injections.length > 0
+            ? Number((injections.reduce((s, e) => s + (e.injected_count || 0), 0) / injections.length).toFixed(2))
+            : null;
+        const sortedDecayed = allDecayed.slice().sort((a, b) => b - a);
+        const cutoffVal = sortedDecayed.length >= defaultLimit ? sortedDecayed[defaultLimit - 1] : null;
+        const nextVal = sortedDecayed.length > defaultLimit ? sortedDecayed[defaultLimit] : null;
+        const cliff = (cutoffVal != null && nextVal != null)
+            ? Number((cutoffVal - nextVal).toFixed(4))
+            : null;
+
+        // (f) hit-rate — LOWER BOUND. An injected id counts as a hit if it later
+        // appears in a memory_access event at/after the injection time, OR its
+        // memory's last_accessed is at/after the injection time.
+        const recent = injections.slice(-recentInjections);
+        let numerator = 0;
+        let denominator = 0;
+        for (const inj of recent) {
+            const injTime = new Date(inj.timestamp).getTime();
+            const ids = Array.isArray(inj.injected_ids) ? inj.injected_ids : [];
+            denominator += ids.length;
+            const accessedAtOrAfter = new Set();
+            for (const acc of accesses) {
+                if (new Date(acc.timestamp).getTime() >= injTime) {
+                    for (const id of (acc.accessed_ids || [])) accessedAtOrAfter.add(id);
+                }
+            }
+            for (const id of ids) {
+                const viaAccess = accessedAtOrAfter.has(id);
+                const la = idLastAccessed[id];
+                const viaLastAccessed = la && new Date(la).getTime() >= injTime;
+                if (viaAccess || viaLastAccessed) numerator++;
+            }
+        }
+        const hitRateValue = denominator > 0 ? Number((numerator / denominator).toFixed(3)) : null;
+
+        return {
+            timestamp: new Date().toISOString(),
+            cap,
+            cap_utilization: capUtilization,
+            decay: { total_stale: totalStale, total_archive_candidates: totalArchive },
+            usage: { never_used: totalNeverUsed, top_used: topUsed },
+            prune: {
+                candidates: pruneCandidates,
+                current_size: totalMemories,
+                projected_size_after: totalMemories - pruneCandidates.length,
+            },
+            supersession: {
+                active: totalMemories,
+                superseded: totalSuperseded,
+            },
+            dead_weight: {
+                candidates: deadWeightCandidates,
+                exposure_min_active_days: EXPOSURE_MIN_ACTIVE_DAYS,
+                current_size: totalMemories,
+                projected_size_after: totalMemories - deadWeightCandidates.length,
+                caveat: 'usage_count is a LOWER BOUND — passive session-start injection reads are not counted, so a flagged memory may actually have been recalled. Review before deleting.',
+            },
+            injection: {
+                has_telemetry: hasLines && injections.length > 0,
+                events: injections.length,
+                avg_injected_count: avgInjected,
+                default_limit: defaultLimit,
+                cliff,   // decayed-confidence drop at the injection cutoff
+            },
+            hit_rate: {
+                has_telemetry: hasLines && injections.length > 0,
+                value: hitRateValue,
+                numerator,
+                denominator,
+                sample_injections: recent.length,
+                lower_bound: true,   // implicit reads of an injected memory are uncounted
+            },
+        };
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Inbox pattern (R-A) — sub-agents flag draft memories to _inbox/, Main
+    // Agent promotes/discards on dispatch return. Plan:
+    // docs/.output/plans/2026-05-11-do-r-a-inbox-pattern.md
+    // ────────────────────────────────────────────────────────────────────────
+
+    _inboxDir() {
+        return path.join(this.memoriesDir, '_inbox');
+    }
+
+    /**
+     * List all draft memories in the inbox.
+     * @returns {Promise<Array<{id, file, mtime, content_preview, category, suggested_id, flagged_by, flagged_at}>>}
+     */
+    async inboxList() {
+        const dir = this._inboxDir();
+        let files;
+        try {
+            files = await fs.readdir(dir);
+        } catch (e) {
+            if (e.code === 'ENOENT') return [];
+            throw e;
+        }
+
+        const entries = [];
+        for (const file of files) {
+            if (!file.endsWith('.json')) continue;
+            const filePath = path.join(dir, file);
+            try {
+                const stat = await fs.stat(filePath);
+                const raw = await fs.readFile(filePath, 'utf-8');
+                const draft = JSON.parse(raw);
+                const id = file.replace(/\.json$/, '');
+                const description = draft.content?.description || '';
+                entries.push({
+                    id,
+                    file: filePath,
+                    mtime: stat.mtime.toISOString(),
+                    content_preview: description.slice(0, 120),
+                    category: draft.category,
+                    suggested_id: draft.suggested_id,
+                    flagged_by: draft.flagged_by,
+                    flagged_at: draft.flagged_at,
+                });
+            } catch {
+                // Skip unreadable / malformed entries — surface in promote step
+            }
+        }
+        // Lex-sort = chronological for {YYYY-MM-DD}-{HHMM}-{slug} naming
+        entries.sort((a, b) => a.id.localeCompare(b.id));
+        return entries;
+    }
+
+    /**
+     * Promote an inbox draft to a real memory: read draft, validate category,
+     * call createMemory, delete the inbox file. Errors return {promoted:false,error}
+     * rather than throw — matches existing pruneStaleMemories return shape.
+     *
+     * @param {string} id - inbox filename stem (without .json)
+     * @param {{categoryOverride?: string, idOverride?: string}} [opts]
+     * @returns {Promise<{promoted: true, category, id} | {promoted: false, error}>}
+     */
+    async inboxPromote(id, opts = {}) {
+        const filePath = path.join(this._inboxDir(), `${id}.json`);
+        let raw;
+        try {
+            raw = await fs.readFile(filePath, 'utf-8');
+        } catch (e) {
+            if (e.code === 'ENOENT') {
+                return { promoted: false, error: `Inbox draft not found: ${id}` };
+            }
+            return { promoted: false, error: `Failed to read inbox draft: ${e.message}` };
+        }
+
+        let draft;
+        try {
+            draft = JSON.parse(raw);
+        } catch (e) {
+            return { promoted: false, error: `Inbox draft has malformed JSON: ${e.message}` };
+        }
+
+        const category = opts.categoryOverride || draft.category;
+        const memoryId = opts.idOverride || draft.suggested_id;
+
+        if (!this.categories.includes(category)) {
+            return { promoted: false, error: `Invalid category: ${category}. Allowed: ${this.categories.join(', ')}` };
+        }
+        if (!memoryId || typeof memoryId !== 'string') {
+            return { promoted: false, error: 'Missing or invalid suggested_id (no idOverride supplied)' };
+        }
+
+        const created = await this.createMemory(category, memoryId, draft.content || {});
+        if (!created) {
+            return { promoted: false, error: `createMemory returned null (category limit reached?)` };
+        }
+
+        try {
+            await fs.unlink(filePath);
+        } catch {
+            // Memory was created; failure to unlink is non-fatal but worth a warning
+            console.error(`⚠ Promoted ${category}/${memoryId} but failed to unlink ${filePath}`);
+        }
+
+        return { promoted: true, category, id: memoryId };
+    }
+
+    /**
+     * Delete a memory: unlink JSON file + remove from SQLite + FTS5.
+     * Returns {deleted, error?} matching pruneStaleMemories' internal primitive
+     * but exposed as a top-level method (R-B — required for /review:memory-defrag
+     * merge operations).
+     *
+     * @param {string} category
+     * @param {string} id
+     * @returns {Promise<{deleted: boolean, error?: string}>}
+     */
+    async deleteMemory(category, id) {
+        if (!this.categories.includes(category)) {
+            return { deleted: false, error: `Invalid category: ${category}. Allowed: ${this.categories.join(', ')}` };
+        }
+
+        // Locate the JSON file — try both hyphenated and underscore IDs (createMemory
+        // converts underscores to hyphens at write time but accepts both at read time)
+        const hyphenated = MemoryManager.idToFilename(id);
+        const candidates = [
+            path.join(this.memoriesDir, category, `${hyphenated}.json`),
+            path.join(this.memoriesDir, category, `${id}.json`),
+        ];
+        let filePath = null;
+        for (const candidate of candidates) {
+            try {
+                await fs.access(candidate);
+                filePath = candidate;
+                break;
+            } catch { /* try next */ }
+        }
+        if (!filePath) {
+            return { deleted: false, error: `Memory not found: ${category}/${id}` };
+        }
+
+        try {
+            await fs.unlink(filePath);
+        } catch (e) {
+            return { deleted: false, error: `Failed to unlink ${filePath}: ${e.message}` };
+        }
+
+        // Deindex from SQLite (non-fatal if it fails; JSON file is already gone)
+        this.deindexMemory(id);
+
+        return { deleted: true };
+    }
+
+    /**
+     * Discard an inbox draft without promoting it.
+     *
+     * @param {string} id - inbox filename stem (without .json)
+     * @returns {Promise<{discarded: boolean, error?: string}>}
+     */
+    async inboxDiscard(id) {
+        const filePath = path.join(this._inboxDir(), `${id}.json`);
+        try {
+            await fs.unlink(filePath);
+            return { discarded: true };
+        } catch (e) {
+            if (e.code === 'ENOENT') {
+                return { discarded: false, error: `Inbox draft not found: ${id}` };
+            }
+            return { discarded: false, error: e.message };
+        }
+    }
+}
+
+module.exports = MemoryManager;
+module.exports.buildFtsQuery = buildFtsQuery;
+
+// Direct invocation forwards to the CLI module (Task #11 split).
+// Existing callers running `node .claude/core/memory-manager.js <cmd>` still work.
+// Export MUST be above this block — the CLI requires ./memory-manager back, and
+// circular-require sees {} if module.exports is assigned after the CLI kicks off.
+if (require.main === module) {
+    require('./memory-manager-cli').main().catch(err => {
+        console.error(err.message);
+        process.exit(1);
+    });
+}
