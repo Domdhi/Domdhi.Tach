@@ -14,13 +14,23 @@ playback speed on every site and offers quick manual control.
   (Chrome requires the manifest at the root of the loaded folder). ALL runtime
   files live here. Load `src/` unpacked; `npm run package` zips `src/` (manifest
   at the zip root).
-- Repo root holds dev-only tooling: `tests/`, `e2e/`, `docs/`, `create_icons.js`,
-  `package-extension.js`, and the configs. These never ship.
+- Repo root holds dev-only tooling: `tests/`, `e2e/`, `docs/`, `tools/`,
+  `create_icons.js`, `package-extension.js`, and the configs. These never ship in
+  the extension package.
+- **Public/private split (Domdhi.* convention).** This repo is the PRIVATE
+  workshop (→ `github.com/Domdhi/Domdhi.Tach.Private`). `tools/publish.js` syncs a
+  curated subset into `_Domdhi.Tach/` (gitignored) — an independent git repo that
+  is the PUBLIC mirror (→ `github.com/Domdhi/Domdhi.Tach`). Curation is git-tracked
+  files minus `tools/publish-manifest.json` excludes + `DEFAULT_EXCLUDES` (an
+  absolute safety-net veto). Public `docs/` is allowlisted to 4 product docs.
 
 ## Commands
 - Test: `npm test`
 - Package: `npm run package` (zips `src/` → `dist/`)
 - Icons (dev only): `node create_icons.js` (writes to `src/icons/`)
+- Publish to public mirror: `npm run publish:dry` (preview) · `publish:public`
+  (sync+prune) · `publish:release` (sync+prune+commit in the mirror). Force-push of
+  a rewritten mirror history is manual (guardrail blocks `git push -f`).
 
 ## Key Files
 - src/content.js — core speed logic (injected into all pages)
