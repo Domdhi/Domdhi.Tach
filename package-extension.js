@@ -44,6 +44,7 @@ const INCLUDE = [
   'options/options.css',
   'options/options.js',
   'icons/icon-16.png',
+  'icons/icon-32.png',
   'icons/icon-48.png',
   'icons/icon-128.png',
   // Bundled self-hosted webfonts (SIL OFL 1.1) — referenced by theme.css

@@ -17,18 +17,23 @@ chrome.runtime.onInstalled.addListener((details) => {
 /**
  * Dynamic toolbar icon — recolor the action icon to follow the user's accent.
  *
- * The baked PNGs (manifest `icons`/`action.default_icon`) keep a fixed orange
- * glyph and act as the pre-paint fallback. Here the service worker redraws the
- * SAME glyph (charcoal rounded-rect + play triangle + 3 motion bars, geometry
- * mirrored from create_icons.js) in the accent color via OffscreenCanvas — the
- * SW has no DOM, so a <canvas> element is unavailable — and hands raw ImageData
- * to chrome.action.setIcon (needs no permission beyond the declared "action").
+ * CRITICAL: this setIcon paints OVER the manifest `icons`/`action.default_icon`
+ * PNGs at runtime, so the toolbar shows whatever is drawn HERE — editing the PNGs
+ * alone changes nothing on the toolbar. The service worker redraws the SAME
+ * tachometer-dial glyph as create_icons.js (270° arc + needle + red redline tip +
+ * hub, with a black keyline) in the accent color via OffscreenCanvas — the SW has
+ * no DOM, so a <canvas> element is unavailable — and hands raw ImageData to
+ * chrome.action.setIcon (needs no permission beyond the declared "action"). The
+ * baked PNGs are only the pre-paint fallback.
  *
- * The accent literal is hardcoded rather than imported from constants.js: the
- * service worker stays minimal (ADR-001). It mirrors DEFAULT_SETTINGS.accentColor.
+ * Geometry is COPIED from create_icons.js / the popup header SVG (24u viewBox).
+ * Keep the path numbers in sync with those — there is no shared module (the SW
+ * stays minimal, ADR-001; the colour literals mirror theme.css, not imported).
  */
 const ICON_SIZES = [16, 32, 48];
-const ICON_BG = '#020202';            // Domdhi obsidian void (matches create_icons.js)
+const ICON_BG = '#020202';             // Domdhi obsidian void (matches create_icons.js)
+const ICON_RED = '#FF0055';            // rose-gem redline tip (fixed; never follows the accent)
+const ICON_OUTLINE = '#000000';        // black keyline (keeps the tip distinct from an accent-red dial)
 const DEFAULT_ICON_ACCENT = '#9D4EDD'; // Deep Amethyst (System) — mirrors DEFAULT_SETTINGS.accentColor
 
 /**
@@ -58,27 +63,11 @@ function shouldUpdateIcon(changes, areaName) {
 }
 
 /**
- * Trace a rounded-rect path. Uses ctx.roundRect where available (Chrome SW),
- * falling back to arcTo corners.
- */
-function roundRectPath(ctx, x, y, w, h, r) {
-    if (typeof ctx.roundRect === 'function') {
-        ctx.beginPath();
-        ctx.roundRect(x, y, w, h, r);
-        return;
-    }
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-}
-
-/**
- * Draw the icon-D glyph at `size` px in `accentHex` and return its ImageData.
- * Geometry mirrors create_icons.js so the dynamic icon matches the baked PNGs.
+ * Draw the tachometer-dial glyph at `size` px and return its ImageData. The dial
+ * (arc + needle + hub) is stroked in `accentHex`; the redline tip stays ICON_RED,
+ * and a black keyline underlay keeps the tip distinct even when the accent IS red.
+ * Geometry is the 24u viewBox art from create_icons.js, framed with the same
+ * scale(0.9) + down-nudge. The 16px size drops the red tip (noise that small).
  * Browser-only — relies on OffscreenCanvas.
  * @param {number} size
  * @param {string} accentHex
@@ -87,39 +76,48 @@ function roundRectPath(ctx, x, y, w, h, r) {
 function drawIcon(size, accentHex) {
     const canvas = new OffscreenCanvas(size, size);
     const ctx = canvas.getContext('2d');
+    const simplified = size <= 16;
+    const cw = simplified ? 2.9 : 2;     // coloured stroke width (24u units)
+    const ow = cw + 1.3;                 // black keyline width
+    const hubR = simplified ? 2.2 : 1.9;
 
-    const r = 0; // brutalist hard square — zero radius
-    const pad = Math.floor(size * 0.15);
-    const drawW = size - pad * 2;
-    const linesW = Math.floor(drawW * 0.42);
-    const triLeft = pad + linesW + Math.max(1, Math.floor(size * 0.04));
-    const triRight = size - pad;
-    const triTop = Math.floor(size * 0.2);
-    const triBot = size - Math.floor(size * 0.2);
-    const triMidY = size / 2;
-    const barLong = linesW;
-    const barShort = Math.floor(linesW * 0.75);
-    const barH = Math.max(1, Math.floor(size * 0.08));
-
-    // Charcoal rounded-rect background.
+    // Obsidian square background (device px, before the art transform).
     ctx.fillStyle = ICON_BG;
-    roundRectPath(ctx, 0, 0, size, size, r);
-    ctx.fill();
+    ctx.fillRect(0, 0, size, size);
 
-    // Accent-colored glyph: 3 motion bars + a right-pointing play triangle.
-    ctx.fillStyle = accentHex;
-    const barYs = [triTop, triMidY, triBot];
-    const barWs = [barShort, barLong, barShort];
-    for (let i = 0; i < 3; i++) {
-        ctx.fillRect(pad, barYs[i] - barH / 2, barWs[i], barH);
+    // Map 24u art-space → px with the same framing as create_icons.js:
+    //   translate(12,12.6) · scale(0.9) · translate(-12,-12), times s = size/24.
+    const s = size / 24;
+    ctx.setTransform(s * 0.9, 0, 0, s * 0.9, s * 1.2, s * 1.8);
+    ctx.lineCap = 'butt';
+
+    // 270° dial arc: centre (12,14) r8 — concentric with the hub/needle pivot,
+    // exactly matching the SVG `M6.34 19.66A8 8 0 1 1 17.66 19.66` in create_icons.js.
+    // Endpoints (6.34,19.66)→(17.66,19.66) then sit exactly on r8; drawn the long
+    // way (through the top) so the gap stays at the bottom.
+    const a1 = Math.atan2(19.66 - 14, 6.34 - 12);
+    const a2 = Math.atan2(19.66 - 14, 17.66 - 12);
+    const arc = () => { ctx.beginPath(); ctx.arc(12, 14, 8, a1, a2, false); ctx.stroke(); };
+    const line = (x1, y1, x2, y2) => { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); };
+    const dot = (rr, fill) => { ctx.beginPath(); ctx.arc(12, 14, rr, 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill(); };
+
+    // Needle: full hub→rim when simplified (no red), else hub→colour junction.
+    const nx = simplified ? 18.45 : 15.58;
+    const ny = simplified ? 5.94 : 9.53;
+
+    // Black keyline underlay (arc + needle + hub).
+    ctx.strokeStyle = ICON_OUTLINE; ctx.lineWidth = ow;
+    arc(); line(12, 14, nx, ny); dot(hubR + 0.65, ICON_OUTLINE);
+    // Coloured dial.
+    ctx.strokeStyle = accentHex; ctx.lineWidth = cw;
+    arc(); line(12, 14, nx, ny); dot(hubR, accentHex);
+    // Red redline tip on top, bordered all the way around (skipped at 16px).
+    if (!simplified) {
+        ctx.strokeStyle = ICON_OUTLINE; ctx.lineWidth = ow; line(15.46, 9.67, 18.86, 5.43);
+        ctx.strokeStyle = ICON_RED; ctx.lineWidth = cw; line(15.87, 9.16, 18.45, 5.94);
     }
-    ctx.beginPath();
-    ctx.moveTo(triLeft, triTop);
-    ctx.lineTo(triRight, triMidY);
-    ctx.lineTo(triLeft, triBot);
-    ctx.closePath();
-    ctx.fill();
 
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     return ctx.getImageData(0, 0, size, size);
 }
 

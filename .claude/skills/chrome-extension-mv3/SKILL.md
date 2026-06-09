@@ -107,3 +107,12 @@ Jest + jsdom for units (`tests/*.test.js`, `chrome-mock.js` for the chrome API �
 `storage.onChanged`, so listener wiring is tested by exercising the mechanism functions directly).
 Playwright for e2e against the unpacked extension. See the `qa-engineer` skill for the mandatory
 adjacent-case matrix (multi-element scope + reversible-state transitions).
+
+**To drive or screenshot the extension's OWN popup/options UI, use Playwright — NOT the
+claude-in-chrome MCP.** The MCP is sandboxed out of other extensions' `chrome-extension://`
+origins: `read_page`/`javascript_tool`/screenshot all fail with "Cannot access a
+chrome-extension:// URL of different extension" (ordinary pages like YouTube are fine; `file://`
+also gets mangled — navigate prepends `https://`). Playwright loads the unpacked extension via
+`--load-extension` and drives `chrome-extension://<id>/` pages with real `chrome.storage`. Run
+headed — the MV3 service worker does not start headless in WSL2.
+[claude-in-chrome-cannot-access-other-extension-pages] [store-screenshots-via-playwright-not-mcp]

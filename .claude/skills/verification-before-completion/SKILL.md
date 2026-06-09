@@ -47,13 +47,20 @@ Skip any step = lying, not verifying
 
 | Claim | Requires | Not Sufficient |
 |-------|----------|----------------|
-| Tests pass | Test command output: 0 failures | Previous run, "should pass" |
+| Tests pass | Test output: 0 failures AND a non-zero pass count | Previous run, "should pass", exit 0 alone |
 | Linter clean | Linter output: 0 errors | Partial check, extrapolation |
 | Build succeeds | Build command: exit 0 | Linter passing, logs look good |
 | Bug fixed | Test original symptom: passes | Code changed, assumed fixed |
 | Regression test works | Red-green cycle verified | Test passes once |
 | Agent completed | VCS diff shows changes | Agent reports "success" |
 | Requirements met | Line-by-line checklist | Tests passing |
+
+> **A "PASSED" with zero tests is a failure, not a pass.** `gate.js test` keys off the
+> subprocess exit code and never parses the runner's summary, so a broken/empty run
+> reports `Tests: PASSED (0 passed, 0 failed)` with `overall:true` — even when the real
+> `npm test` underneath ran and passed dozens. Any AC-gate that trusts the 0-count green
+> would ship a project whose tests silently stopped running. Always confirm the pass
+> count is non-zero and matches the suite size.
 
 ## Red Flags - STOP
 

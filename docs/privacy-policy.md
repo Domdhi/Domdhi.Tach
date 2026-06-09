@@ -3,9 +3,9 @@
 **Effective date:** 2026-06-06
 **Last updated:** 2026-06-06
 
-Tach is a lightweight browser extension that sets a default HTML5 video
-playback speed and gives you quick manual control. Your privacy is the default,
-not a setting.
+Tach is a free, open-source (MIT-licensed) browser extension that sets a default
+HTML5 video playback speed and gives you quick manual control. Your privacy is the
+default, not a setting.
 
 ## The short version
 

@@ -12,16 +12,23 @@
 <body>
     <div class="container">
         <div class="header">
-            <!-- Header mark = miniature of the main 270° dial (same arc + needle
-                 + redline tick + hub), so badge and gauge read as one instrument. -->
+            <!-- Header mark = miniature of the main 270° dial (arc + two-tone needle
+                 + hub), so badge and gauge read as one instrument. Geometry is shared
+                 pixel-for-pixel with the toolbar icon (create_icons.js) and the options
+                 header (options/options.html) — change all three together. -->
             <svg class="header__mark" width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
-                <!-- 270° dial arc, opening at the bottom -->
+                <!-- Black keyline underlay (arc + needle + hub) -->
+                <path d="M6.34 19.66A8 8 0 1 1 17.66 19.66" fill="none" stroke="#000" stroke-width="3.3" stroke-linecap="butt"/>
+                <path d="M12 14L15.58 9.53" stroke="#000" stroke-width="3.3" stroke-linecap="butt"/>
+                <circle cx="12" cy="14" r="2.55" fill="#000"/>
+                <!-- Coloured dial: 270° arc, amethyst needle, hub -->
                 <path d="M6.34 19.66A8 8 0 1 1 17.66 19.66" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="butt"/>
-                <!-- redline tick just outside the overdrive (upper-right) end -->
-                <path d="M18.4 7.6l1.8-1.8" stroke="var(--status-error, #cf222e)" stroke-width="2" stroke-linecap="round"/>
-                <!-- needle pointing into the overdrive zone (~up-right) -->
-                <path d="M12 14L16 9" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round"/>
-                <circle cx="12" cy="14" r="1.7" fill="var(--primary-color)" stroke="var(--surface)" stroke-width="0.75"/>
+                <path d="M12 14L15.58 9.53" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="butt"/>
+                <circle cx="12" cy="14" r="1.9" fill="var(--primary-color)"/>
+                <!-- Red tip on top, bordered all the way around (extended black line under
+                     a same-width red): stays distinct even when --primary-color is red. -->
+                <path d="M15.46 9.67L18.86 5.43" stroke="#000" stroke-width="3.3" stroke-linecap="butt"/>
+                <path d="M15.87 9.16L18.45 5.94" stroke="var(--status-error, #cf222e)" stroke-width="2" stroke-linecap="butt"/>
             </svg>
             <div class="header__brand">
                 <h1 id="popupTitle">TACH</h1>
