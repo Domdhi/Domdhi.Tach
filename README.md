@@ -7,6 +7,12 @@ optional YouTube cleanup. Free, private, and open source.
 
 > Part of the `Domdhi.*` family · Media domain · Domdhi.OS design system.
 
+<p align="center">
+  <a href="https://chromewebstore.google.com/detail/video-speed-playback-cont/hnmmnmjgefjmdjjekbfdcnglmiibkmhj">
+    <img src="docs/design/store/02-popup-dark.png" alt="Tach — the tachometer popup, with the speed gauge and throttle" width="640">
+  </a>
+</p>
+
 ## ✨ Features
 
 - **Default speed everywhere** — set it once (0.1×–4.0×); it applies to every
@@ -43,7 +49,14 @@ sends **nothing**, anywhere. That claim is **verifiable**, not just stated:
 *Domdhi.Tach* / *Domdhi* and the Domdhi.OS visual identity are **not** licensed —
 forks must rebrand.
 
-## 🚀 Installation (load unpacked)
+## 🚀 Install
+
+**[★ Add to Chrome / Brave / Edge — Chrome Web Store →](https://chromewebstore.google.com/detail/video-speed-playback-cont/hnmmnmjgefjmdjjekbfdcnglmiibkmhj)**
+
+That's the easy way. To run from source instead:
+
+<details>
+<summary>Load unpacked (for development)</summary>
 
 1. Clone this repository.
 2. Open Chrome / Brave / Edge → `chrome://extensions/`.
@@ -51,6 +64,7 @@ forks must rebrand.
 4. Click **Load unpacked** and select the **`src/`** folder — the manifest lives
    at `src/`'s root, so you must load `src/`, not the repo root.
 5. Pin Tach to your toolbar.
+</details>
 
 ## 🎮 Usage
 
