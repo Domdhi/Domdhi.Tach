@@ -7,7 +7,7 @@ All notable changes to Tach are documented here. The format follows
 
 ## [1.1.0] — 2026-10-24
 
-Package built (`dist/Tach-v1.1.0.zip`); pending upload to the Chrome Web Store.
+Released on the Chrome Web Store (`dist/Tach-v1.1.0.zip`); installed copies auto-update.
 
 ### Upgrade notes
 
