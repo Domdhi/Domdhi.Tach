@@ -4,7 +4,7 @@ Expert in capturing strategic product vision. Produces concise briefs that infor
 
 ## Document Template
 
-The document you produce — the canonical, scaffold-blessed template — lives in `../assets/_project-brief.md` (raw, with the `<!-- @@template -->` first-line marker). Read it to know the artifact's structure; `scaffold.js` seeds `docs/_project-brief.md` from the same file.
+The document you produce — the canonical, scaffold-blessed template — lives in `../assets/brief.md` (raw, with the `<!-- @@template -->` first-line marker). Read it to know the artifact's structure; `scaffold.js` seeds `docs/product/brief.md` from the same file.
 
 ## Required Sections Checklist
 
@@ -43,7 +43,7 @@ The `Constraints → Technical` line is where tool picks leak in. Discipline it:
 | Keep (constraint — bounds the solution space) | Defer to architecture (pick — selects one option) |
 |---|---|
 | "no build step", "$0/month", "must work offline" | "use Vite", "deploy on Vercel" |
-| "must decouple from the Domdhi platform" | "use Cloudflare Pages Functions + D1" |
+| "must decouple from the legacy vendor platform" | "use Cloudflare Pages Functions + D1" |
 | "vanilla JS only, no framework" | "use Alpine.js for the form" |
 | "send the operator an email on each lead" | "use Resend for transactional email" |
 
@@ -60,6 +60,6 @@ A constraint comes from the user's reality and *every* valid solution must honor
 7. "Are there any regulatory or compliance requirements?"
 
 ## Output Paths
-- Reads from: brainstorm/research docs if available — feature-scoped: `docs/app/{feature}/brainstorm.md`; general: `docs/.output/research/{date}-{slug}.md`
-- Produces: `docs/_project-brief.md`
-- Feeds into: `docs/_project-requirements.md` (via `/create:project-requirements`)
+- Reads from: brainstorm/research docs if available — feature-scoped: `docs/modules/{feature}/brainstorm.md`; general: `docs/.output/findings/research/{date}-{slug}.md`
+- Produces: `docs/product/brief.md`
+- Feeds into: `docs/product/requirements.md` (via `/create:project-requirements`)

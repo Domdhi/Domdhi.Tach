@@ -41,6 +41,12 @@ function resolveSettings(stored) {
             ? s.hideShorts : DEFAULT_SETTINGS.hideShorts,
         hideComments: s.hideComments !== undefined
             ? s.hideComments : DEFAULT_SETTINGS.hideComments,
+        hideLiveChat: s.hideLiveChat !== undefined
+            ? s.hideLiveChat : DEFAULT_SETTINGS.hideLiveChat,
+        hideExtras: s.hideExtras !== undefined
+            ? s.hideExtras : DEFAULT_SETTINGS.hideExtras,
+        hideFeedAds: s.hideFeedAds !== undefined
+            ? s.hideFeedAds : DEFAULT_SETTINGS.hideFeedAds,
         hideChatFullscreen: s.hideChatFullscreen !== undefined
             ? s.hideChatFullscreen : DEFAULT_SETTINGS.hideChatFullscreen,
         skipAds: s.skipAds !== undefined

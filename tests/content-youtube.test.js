@@ -36,7 +36,7 @@ afterEach(() => {
     // Remove the fullscreen-chat <style> the suppression injects into <head> so
     // it never leaks across tests (resetDom only clears <body>).
     document.getElementById('vsc-yt-fs-chat-style')?.remove();
-    yt._setSettings({ hideShorts: false, hideComments: false, hideChatFullscreen: false, skipAds: false });
+    yt._setSettings({ hideShorts: false, hideComments: false, hideLiveChat: false, hideExtras: false, hideFeedAds: false, hideChatFullscreen: false, skipAds: false });
     yt.stopAdSkip(); // ensure no ad-skip timer leaks across tests
 });
 
@@ -70,9 +70,18 @@ describe('Story 4.1 — settings schema (3.1 pattern)', () => {
         expect(yt.resolveSettings({ hideChatFullscreen: false }).hideChatFullscreen).toBe(false);
     });
 
-    test('resolveSettings defaults skipAds OFF, but honors a stored true', () => {
-        expect(yt.resolveSettings({}).skipAds).toBe(false);
-        expect(yt.resolveSettings({ skipAds: true }).skipAds).toBe(true);
+    test('resolveSettings defaults hideLiveChat/hideExtras ON, honoring stored false', () => {
+        expect(yt.resolveSettings({}).hideLiveChat).toBe(true);
+        expect(yt.resolveSettings({}).hideExtras).toBe(true);
+        expect(yt.resolveSettings({}).hideFeedAds).toBe(true);
+        expect(yt.resolveSettings({ hideFeedAds: false }).hideFeedAds).toBe(false);
+        expect(yt.resolveSettings({ hideLiveChat: false }).hideLiveChat).toBe(false);
+        expect(yt.resolveSettings({ hideExtras: false }).hideExtras).toBe(false);
+    });
+
+    test('resolveSettings defaults skipAds ON, but honors a stored false', () => {
+        expect(yt.resolveSettings({}).skipAds).toBe(true);
+        expect(yt.resolveSettings({ skipAds: false }).skipAds).toBe(false);
     });
 
     test('getSettings reads from chrome.storage.sync and resolves toggles', (done) => {
@@ -247,14 +256,14 @@ describe('Story 4.4 — hide comments and live chat', () => {
         expect(isHidden(document.getElementById('comments'))).toBe(true);
     });
 
-    test('hideComments ON hides the live/premiere live-chat panel', () => {
+    test('hideLiveChat ON hides the live/premiere live-chat panel', () => {
         // ytd-live-chat-frame is the panel that stays open on live + premiere
         // videos (the user-reported case).
         document.body.innerHTML = `
             <ytd-live-chat-frame id="chat"></ytd-live-chat-frame>
             <div id="chat-container"></div>
             <iframe id="chatframe"></iframe>`;
-        yt._setSettings({ hideShorts: false, hideComments: true });
+        yt._setSettings({ hideShorts: false, hideLiveChat: true });
         yt.applyCleanup(document);
         expect(isHidden(document.querySelector('ytd-live-chat-frame'))).toBe(true);
         expect(isHidden(document.getElementById('chat-container'))).toBe(true);
@@ -264,7 +273,7 @@ describe('Story 4.4 — hide comments and live chat', () => {
     test('live-chat panel uses display:none !important so it survives fullscreen re-show', () => {
         document.body.innerHTML =
             '<ytd-live-chat-frame id="chat"></ytd-live-chat-frame>';
-        yt._setSettings({ hideShorts: false, hideComments: true });
+        yt._setSettings({ hideShorts: false, hideLiveChat: true });
         yt.applyCleanup(document);
         const panel = document.getElementById('chat');
         // !important inline declaration wins over YouTube's stylesheet rules that
@@ -279,11 +288,26 @@ describe('Story 4.4 — hide comments and live chat', () => {
         expect(panel.style.getPropertyPriority('display')).toBe('important');
     });
 
-    test('hideComments OFF leaves comments and chat visible (no artifacts)', () => {
+    test('hideComments ON leaves live chat alone; hideLiveChat ON leaves comments alone', () => {
         document.body.innerHTML = `
             <ytd-comments id="comments"></ytd-comments>
             <ytd-live-chat-frame id="chat"></ytd-live-chat-frame>`;
-        yt._setSettings({ hideShorts: false, hideComments: false });
+        yt._setSettings({ hideComments: false, hideLiveChat: true });
+        yt.applyCleanup(document);
+        expect(isHidden(document.getElementById('chat'))).toBe(true);
+        expect(document.getElementById('comments').style.display).toBe('');
+        yt.unhideAll(document);
+        yt._setSettings({ hideComments: true, hideLiveChat: false });
+        yt.applyCleanup(document);
+        expect(isHidden(document.getElementById('comments'))).toBe(true);
+        expect(document.getElementById('chat').style.display).toBe('');
+    });
+
+    test('hideComments + hideLiveChat OFF leaves comments and chat visible (no artifacts)', () => {
+        document.body.innerHTML = `
+            <ytd-comments id="comments"></ytd-comments>
+            <ytd-live-chat-frame id="chat"></ytd-live-chat-frame>`;
+        yt._setSettings({ hideShorts: false, hideComments: false, hideLiveChat: false });
         yt.applyCleanup(document);
         expect(document.getElementById('comments').style.display).toBe('');
         expect(document.getElementById('chat').style.display).toBe('');
@@ -313,7 +337,7 @@ describe('Story 4.4 — hide comments and live chat', () => {
         document.body.innerHTML = `
             <ytd-comments id="comments"></ytd-comments>
             <ytd-live-chat-frame id="chat"></ytd-live-chat-frame>`;
-        yt._setSettings({ hideShorts: false, hideComments: true });
+        yt._setSettings({ hideShorts: false, hideComments: true, hideLiveChat: true });
         yt.applyCleanup(document);
         const restored = yt.unhideAll(document);
         expect(restored).toBe(2);
@@ -978,5 +1002,89 @@ describe('getTranscriptText — open the transcript panel and poll for segments'
         const cb = jest.fn();
         expect(() => yt.getTranscriptText(cb, { maxTries: 1, setTimeoutFn: syncSetTimeout }))
             .not.toThrow();
+    });
+});
+
+describe('hideExtras — Playables, community posts, news shelves', () => {
+    function isHidden(el) {
+        return el.style.getPropertyValue('display') === 'none'
+            && el.classList.contains('vsc-yt-hidden');
+    }
+
+    test('hides a Playables shelf section, sidebar entry and community posts', () => {
+        document.body.innerHTML = `
+            <ytd-rich-section-renderer id="games"><a href="/playables?x=1">Game</a></ytd-rich-section-renderer>
+            <ytd-guide-entry-renderer id="side"><a href="/playables" title="Playables"></a></ytd-guide-entry-renderer>
+            <ytd-rich-section-renderer id="posts"><ytd-post-renderer></ytd-post-renderer></ytd-rich-section-renderer>
+            <ytd-rich-item-renderer id="video"><a href="/watch?v=abc">A video</a></ytd-rich-item-renderer>`;
+        yt._setSettings({ hideExtras: true });
+        yt.applyCleanup(document);
+        expect(isHidden(document.getElementById('games'))).toBe(true);
+        expect(isHidden(document.getElementById('side'))).toBe(true);
+        expect(isHidden(document.getElementById('posts'))).toBe(true);
+        expect(document.getElementById('video').style.display).toBe('');
+    });
+
+    test('hides shelves by exact title, but not a shelf merely containing the words', () => {
+        document.body.innerHTML = `
+            <ytd-rich-section-renderer id="news"><div id="title">Breaking news</div></ytd-rich-section-renderer>
+            <ytd-rich-section-renderer id="other"><div id="title">Breaking news bloopers</div></ytd-rich-section-renderer>`;
+        yt._setSettings({ hideExtras: true });
+        yt.applyCleanup(document);
+        expect(isHidden(document.getElementById('news'))).toBe(true);
+        expect(document.getElementById('other').style.display).toBe('');
+    });
+
+    test('hideExtras OFF leaves everything visible; flipping OFF restores', () => {
+        document.body.innerHTML = `
+            <ytd-rich-section-renderer id="games"><a href="/playables">Game</a></ytd-rich-section-renderer>`;
+        yt._setSettings({ hideExtras: false });
+        yt.applyCleanup(document);
+        expect(document.getElementById('games').style.display).toBe('');
+        yt._setSettings({ hideExtras: true });
+        yt.applyCleanup(document);
+        expect(isHidden(document.getElementById('games'))).toBe(true);
+        yt._setSettings({ hideExtras: false });
+        yt.unhideAll(document);
+        yt.applyCleanup(document);
+        expect(document.getElementById('games').style.display).toBe('');
+    });
+});
+
+describe('hideFeedAds — sponsored feed tiles', () => {
+    function isHidden(el) {
+        return el.style.getPropertyValue('display') === 'none'
+            && el.classList.contains('vsc-yt-hidden');
+    }
+
+    test('hides the whole rich item holding an ad slot, not neighbouring videos', () => {
+        document.body.innerHTML = `
+            <ytd-rich-item-renderer id="ad"><div id="content"><ytd-ad-slot-renderer></ytd-ad-slot-renderer></div></ytd-rich-item-renderer>
+            <ytd-rich-item-renderer id="video"><div id="content"><a href="/watch?v=abc">video</a></div></ytd-rich-item-renderer>`;
+        yt._setSettings({ hideFeedAds: true });
+        yt.applyCleanup(document);
+        expect(isHidden(document.getElementById('ad'))).toBe(true);
+        expect(document.getElementById('video').style.display).toBe('');
+    });
+
+    test('hides a bare ad slot (search results / watch sidebar)', () => {
+        document.body.innerHTML = '<ytd-ad-slot-renderer id="slot"></ytd-ad-slot-renderer>';
+        yt._setSettings({ hideFeedAds: true });
+        yt.applyCleanup(document);
+        expect(isHidden(document.getElementById('slot'))).toBe(true);
+    });
+
+    test('OFF leaves ads alone; flipping OFF restores', () => {
+        document.body.innerHTML = '<ytd-rich-item-renderer id="ad"><ytd-ad-slot-renderer></ytd-ad-slot-renderer></ytd-rich-item-renderer>';
+        yt._setSettings({ hideFeedAds: false });
+        yt.applyCleanup(document);
+        expect(document.getElementById('ad').style.display).toBe('');
+        yt._setSettings({ hideFeedAds: true });
+        yt.applyCleanup(document);
+        expect(isHidden(document.getElementById('ad'))).toBe(true);
+        yt._setSettings({ hideFeedAds: false });
+        yt.unhideAll(document);
+        yt.applyCleanup(document);
+        expect(document.getElementById('ad').style.display).toBe('');
     });
 });

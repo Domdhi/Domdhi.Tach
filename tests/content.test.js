@@ -762,7 +762,7 @@ describe('setupVideoRateChangeListener — rate-change protection', () => {
 describe('Story 3.1 — DEFAULT_SETTINGS (AC1: all planned keys + documented defaults)', () => {
     test('exposes all planned keys', () => {
         expect(Object.keys(DEFAULT_SETTINGS).sort()).toEqual(
-            ['accentColor', 'customPresets', 'defaultPlaybackSpeed', 'hideChatFullscreen', 'hideComments', 'hideShorts', 'perSiteSpeeds', 'redlineSpeed', 'skipAds', 'theme'].sort()
+            ['accentColor', 'customPresets', 'defaultPlaybackSpeed', 'hideChatFullscreen', 'hideComments', 'hideExtras', 'hideFeedAds', 'hideLiveChat', 'hideShorts', 'perSiteSpeeds', 'redlineSpeed', 'skipAds', 'theme'].sort()
         );
     });
 
@@ -787,8 +787,8 @@ describe('Story 3.1 — DEFAULT_SETTINGS (AC1: all planned keys + documented def
         expect(DEFAULT_SETTINGS.hideChatFullscreen).toBe(true);
     });
 
-    test('skipAds defaults to false (ships disabled — Web Store caution)', () => {
-        expect(DEFAULT_SETTINGS.skipAds).toBe(false);
+    test('skipAds defaults to true (ships enabled; still user-toggleable)', () => {
+        expect(DEFAULT_SETTINGS.skipAds).toBe(true);
     });
 
     test('theme defaults to "auto"', () => {

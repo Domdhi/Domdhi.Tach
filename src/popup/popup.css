@@ -10,40 +10,50 @@
    back) render identically. Chrome NEVER shrinks a popup back down once a tall,
    scrolling view has grown it — that's what made the main view jump wider after
    opening Settings and reflow the preset grid from 2 columns to 3. A fixed width
-   on the root removes the float entirely. overflow-x:hidden prevents a horizontal
-   scrollbar; scrollbar-gutter reserves the (thin) vertical scrollbar space on both
-   edges so content stays centered and the width is identical whether or not a
-   view scrolls. The scrollbar itself is slimmed below. */
+   on the root removes the float entirely.
+
+   SCROLLING lives on <body>, not the root. A root scrollbar eats into the fixed
+   300px, but the root keeps its 300px width, so the content's right edge slid
+   under the scrollbar (16px left / 6px right in the tall settings view), and
+   `scrollbar-gutter: stable both-edges` on the root shifted everything right
+   because Chrome sizes the popup window to the 300px and ignores the gutters.
+   Instead body reserves the scrollbar lane ALWAYS (`scrollbar-gutter: stable`)
+   and shrinks its right padding by the measured scrollbar width (--sb, set in
+   popup.js), so the content stays 268px wide with 16px each side in every view,
+   with the scrollbar sitting in the right margin. */
 html {
   width: 300px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  scrollbar-gutter: stable both-edges;
-  scrollbar-width: thin; /* Firefox; Chrome/Brave use ::-webkit-scrollbar below */
-}
-
-html::-webkit-scrollbar {
-  width: 8px;
-}
-
-html::-webkit-scrollbar-thumb {
-  background: var(--border);
-}
-
-html::-webkit-scrollbar-track {
-  background: transparent;
+  overflow: hidden;
 }
 
 body {
   width: 100%; /* fill the pinned html width — never a second fixed width to drift */
+  max-height: 600px; /* Chrome's popup height cap — taller content scrolls here */
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin; /* Firefox; Chrome/Brave use ::-webkit-scrollbar below */
   background-color: var(--background);
   /* Domdhi dot-grid canvas (24×24 radial). Tactical terminal substrate. */
   background-image: radial-gradient(circle, color-mix(in srgb, var(--text-primary) 7%, transparent) 1px, transparent 1px);
   background-size: 24px 24px;
   color: var(--text-primary);
-  padding: 16px;
+  /* Right padding gives back the scrollbar lane (--sb: 10px fallback until JS measures). */
+  padding: 16px max(0px, calc(16px - var(--sb, 10px))) 16px 16px;
   font-size: 14px;
   line-height: 1.5;
+}
+
+body::-webkit-scrollbar {
+  width: 8px;
+}
+
+body::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+
+body::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .container {

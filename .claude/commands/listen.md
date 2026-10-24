@@ -3,6 +3,8 @@ description: Aggregate post-MVP signals (git, telemetry, agent-updates, backlog 
 argument-hint: [optional --since {YYYY-MM-DD} | "14d" | source filter]
 ---
 
+<!-- Generated from .agents/skills/listen/references/workflow.md; edit the canonical source, then run node .claude/core/render-shared-agents.js. -->
+
 # /listen — Signal Intake Aggregator
 
 The first **post-MVP lifecycle** command. When the initial backlog drains, the harness has no model for *push-from-reality* work — bug reports, telemetry drift, unaddressed agent issues, expiring flags. `/listen` is the listener: it sweeps every available signal source, tags each finding with its provenance, and writes a single dated intake file. It does **not** triage, prioritize, or ask questions — that is `/triage`'s job (Tier 2). `/listen` only gathers.
@@ -27,7 +29,7 @@ SCOPE: $ARGUMENTS
 
 ## Output
 
-`docs/.output/intake/{YYYY-MM-DD}.md` — day-rotated, one file per run-day. If today's file already exists, **append a new run section** (`## Run {HH:MM}`) rather than overwriting — multiple `/listen` runs in a day accumulate.
+`docs/.output/evolution/intake/{YYYY-MM-DD}.md` — day-rotated, one file per run-day. If today's file already exists, **append a new run section** (`## Run {HH:MM}`) rather than overwriting — multiple `/listen` runs in a day accumulate.
 
 Every signal is written as a bullet tagged with its origin (provenance model borrowed from Paperclip's `origin_kind`):
 
@@ -41,14 +43,34 @@ Every signal is written as a bullet tagged with its origin (provenance model bor
 
 Determine the time window for time-bounded sources:
 - If `--since` is provided, use it.
-- Else, Glob `docs/.output/intake/*.md` and take the newest filename date as the lower bound.
+- Else, Glob `docs/.output/evolution/intake/*.md` and take the newest filename date as the lower bound.
 - Else, default to 14 days ago.
 
 State the resolved window in the report.
 
+### Step 1b: Consult the triage ledger
+
+Read `docs/.output/evolution/triage/_decisions.md` if it exists. This is a **read-only** step — `/listen` never writes to the ledger (that belongs to `/triage`). If the file is absent or empty, skip this step silently and proceed with an empty suppress set.
+
+Parse each line matching the format:
+
+```
+- {YYYY-MM-DD} · {fingerprint} · **killed|deferred** [until {hint}] — {reason}
+```
+
+Build two suppress sets:
+
+- **Killed:** every entry with `**killed**` — always suppress, no expiry.
+- **Active-deferred:** entries with `**deferred**` are suppressed ONLY while the deferral is still active:
+  - If the line has no parseable ISO date after `until` (e.g. `until pipeline-weight is reassessed` — vague text, no `YYYY-MM-DD`) → treat as active, suppress.
+  - If the line has a parseable `YYYY-MM-DD` after `until` and that date is **in the future** (≥ today) → active, suppress.
+  - If the parseable date is **in the past** (< today) → deferral has expired; do NOT suppress — allow the signal back into intake for re-evaluation.
+
+Matching during sweep (Step 2) is **fuzzy**: a gathered signal is suppressed if the fingerprint's key noun phrase appears as a **substring** of the signal text or origin tag, or vice versa. Do not require exact equality — `git:expiring-flag:payment-shim` suppresses a git signal whose text contains `payment-shim` or `payment shim`. Count the total number of suppressed signals across all sources into **SUPPRESSED_COUNT**.
+
 ### Step 2: Sweep each source (provenance-tagged)
 
-Run every applicable source. A source that yields nothing writes its header with `_No new signals._` — **never omit a section**, because a silent gap reads as "checked, all clear" when it might mean "not checked."
+Run every applicable source. A source that yields nothing writes its header with `_No new signals._` — **never omit a section**, because a silent gap reads as "checked, all clear" when it might mean "not checked." As each signal is gathered, apply the suppress set from Step 1b: if the signal matches a killed or active-deferred fingerprint (fuzzy substring match), omit it from the intake and increment **SUPPRESSED_COUNT**.
 
 **2a. `git` — code reality**
 - `git log --oneline --since={window}` — recent commits; flag anything that looks like a revert, hotfix, or "WIP/TODO" commit message.
@@ -57,14 +79,14 @@ Run every applicable source. A source that yields nothing writes its header with
 - Expiring flags: grep for `remove once`, `remove after`, `TODO: remove`, `@deprecated`, and dated `TODO({date})` markers whose date is **past today** — these are the cleanup obligations the harness otherwise forgets.
 
 **2b. `telemetry` — usage reality**
-- Read `docs/.output/telemetry/command-usage.jsonl` (if present). Within the window: count `gate_run` events with `outcome: "failure"` (recurring build/test pain), and note any command spikes or absences. Skip gracefully if the file is missing.
+- Read `docs/.output/.state/telemetry/command-usage.jsonl` (if present). Within the window: count `gate_run` events with `outcome: "failure"` (recurring build/test pain), and note any command spikes or absences. Skip gracefully if the file is missing.
 
 **2c. `agent-updates` — unaddressed friction**
-- Read the newest few day-files in `docs/.output/agent-updates/` (`{YYYY-MM-DD}.md`; fall back to legacy flat `agent-updates.md`). Surface misalignments/decisions that have **not** yet been folded into a command or agent (i.e., still actionable). These are the `/optimize-agents` candidates that haven't been picked up.
+- Read the newest few day-files in `docs/.output/evolution/agents/` (`{YYYY-MM-DD}.md`; fall back to legacy flat `agent-updates.md`). Surface misalignments/decisions that have **not** yet been folded into a command or agent (i.e., still actionable). These are the `/optimize-agents` candidates that haven't been picked up.
 
 **2d. `backlog` — plan drift**
-- Grep `docs/todo/TODO_*.md` for deferred `[~]` and blocked `[!]` items — work that fell out of waves and never came back.
-- Read `docs/todo/_design-notes.md` open items (un-promoted gaps).
+- Grep `docs/work/todo/TODO_*.md` for deferred `[~]` and blocked `[!]` items — work that fell out of waves and never came back.
+- Read `docs/work/todo/_design-notes.md` open items (un-promoted gaps).
 - Scan recent `docs/.output/plans/*.md` for "Deferred" / "Next Task" residue.
 
 **2e. `external` — bug tracker / feedback (only if configured)**
@@ -74,7 +96,7 @@ Run every applicable source. A source that yields nothing writes its header with
 
 ### Step 3: Write the intake file
 
-MUST write `docs/.output/intake/{YYYY-MM-DD}.md` before reporting (output-persistence convention — chat-only intake is lost on compaction). Structure:
+MUST write `docs/.output/evolution/intake/{YYYY-MM-DD}.md` before reporting (output-persistence convention — chat-only intake is lost on compaction). Structure:
 
 ```markdown
 # Signal Intake — {YYYY-MM-DD}
@@ -103,7 +125,7 @@ De-duplicate within the run (the same TODO surfaced by git and backlog is one si
 
 ### Step 4: Commit (main agent)
 
-Follow the **Post-Command Commit Convention** in CLAUDE.md. Stage only the intake file. Message: `docs: /listen — {N} signals ({YYYY-MM-DD})`.
+Follow the **Post-Command Commit Convention** in `.agents/startup-reference.md`. Stage only the intake file. Message: `docs: /listen — {N} signals ({YYYY-MM-DD})`.
 
 ### Step 5: Report
 
@@ -111,7 +133,7 @@ Follow the **Post-Command Commit Convention** in CLAUDE.md. Stage only the intak
 ## /listen — {YYYY-MM-DD}
 
 **Window:** {resolved}
-**Intake file:** docs/.output/intake/{YYYY-MM-DD}.md
+**Intake file:** docs/.output/evolution/intake/{YYYY-MM-DD}.md
 **Commit:** {hash}
 
 | Source | Signals |
@@ -122,6 +144,7 @@ Follow the **Post-Command Commit Convention** in CLAUDE.md. Stage only the intak
 | backlog | {n} |
 | external | {n / skipped} |
 | **Total** | **{N}** |
+| Suppressed (ledger) | {SUPPRESSED_COUNT} |
 
 **Next:** run `/triage` to turn these signals into backlog items (defer / kill / promote).
 ```

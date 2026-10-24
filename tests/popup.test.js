@@ -15,7 +15,7 @@ setupChromeMock();
 
 const {
     getDomainFromUrl, capPerSiteMap, isValidSpeed, buildSpeedWrite,
-    isYouTubeWatchUrl, decideTranscriptResult, getPresetSpeeds,
+    isYouTubeWatchUrl, decideTranscriptResult, getPresetSpeeds, gaugeSpeedFromAngle,
 } = require('../src/popup/popup');
 const VSC_PRESETS = require('../src/constants');
 
@@ -370,5 +370,27 @@ describe('Story 6.2 — popup preset rendering (DOM)', () => {
             expect(applied).not.toContain(2.5);
             done();
         }, 0);
+    });
+});
+
+describe('gaugeSpeedFromAngle (dial drag angle → speed)', () => {
+    test('on the arch: 180° = min, 0° = max, 90° (top) is mid-dial', () => {
+        expect(gaugeSpeedFromAngle(180)).toBeCloseTo(0.1);
+        expect(gaugeSpeedFromAngle(0)).toBeCloseTo(4.0);
+        const top = gaugeSpeedFromAngle(90);
+        expect(top).toBeGreaterThan(1.0);
+        expect(top).toBeLessThan(4.0);
+    });
+
+    test('below the baseline on the LEFT pins to min, not max (regression: jumped to 4x)', () => {
+        expect(gaugeSpeedFromAngle(-91)).toBeCloseTo(0.1);
+        expect(gaugeSpeedFromAngle(-170)).toBeCloseTo(0.1);
+        expect(gaugeSpeedFromAngle(-179)).toBeCloseTo(0.1);
+    });
+
+    test('below the baseline on the RIGHT pins to max', () => {
+        expect(gaugeSpeedFromAngle(-5)).toBeCloseTo(4.0);
+        expect(gaugeSpeedFromAngle(-10)).toBeCloseTo(4.0);
+        expect(gaugeSpeedFromAngle(-89)).toBeCloseTo(4.0);
     });
 });

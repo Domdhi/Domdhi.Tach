@@ -277,7 +277,17 @@
             perSiteSpeeds: {},
             customPresets: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0],
             hideShorts: false,
+            // Comments thread ONLY. Live/premiere chat is its own key (hideLiveChat).
             hideComments: false,
+            // Live/premiere chat panel (all modes). Split out of hideComments so
+            // comments can show while chat stays hidden. Defaults ON by owner request.
+            hideLiveChat: true,
+            // YouTube "extras" — Playables/games shelves + sidebar entries, community
+            // posts, breaking-news shelves. Defaults ON by owner request.
+            hideExtras: true,
+            // In-feed / sidebar sponsored tiles (ytd-ad-slot-renderer). Separate from
+            // skipAds, which only handles in-player video ads. Defaults ON by owner request.
+            hideFeedAds: true,
             // FR-22: YouTube-only: suppress the live/premiere chat panel in FULLSCREEN
             // (it auto-appears and persists into fullscreen). Defaults ON — this
             // is the one cleanup behavior that ships enabled, by user request
@@ -287,8 +297,9 @@
             // FR-21: YouTube-only: auto-skip ads by seeking the ad <video> to its end
             // (the only mechanism that works — maxing playbackRate is reset and
             // the skip button rejects synthetic clicks; see the 2026-06-06
-            // feasibility spike). Defaults OFF — opt-in, Web Store caution.
-            skipAds: false,
+            // feasibility spike). Defaults ON by owner request; still toggleable
+            // in options (the explicit-off value is honored, unset resolves ON).
+            skipAds: true,
             theme: 'auto',
             // Story 6.6 (FR-20): user-settable UI accent color. Single source —
             // do NOT re-declare this elsewhere. #9D4EDD = Domdhi.OS Deep Amethyst

@@ -32,6 +32,9 @@ describe('Story 4.3 — YouTube cleanup toggles', () => {
             <div id="perSiteList"></div>
             <input type="checkbox" id="hideShortsToggle">
             <input type="checkbox" id="hideCommentsToggle">
+            <input type="checkbox" id="hideLiveChatToggle">
+            <input type="checkbox" id="hideExtrasToggle">
+            <input type="checkbox" id="hideFeedAdsToggle">
             <input type="checkbox" id="hideChatFullscreenToggle">
             <input type="checkbox" id="skipAdsToggle">`;
         document.dispatchEvent(new Event('DOMContentLoaded'));
@@ -98,22 +101,44 @@ describe('Story 4.3 — YouTube cleanup toggles', () => {
         }, 0);
     });
 
-    test('Skip-ads defaults to OFF when nothing is stored', (done) => {
+    test('Live chat and extras default to ON; comments stay OFF', (done) => {
         bootOptionsPage();
         setTimeout(() => {
-            expect(document.getElementById('skipAdsToggle').checked).toBe(false);
+            expect(document.getElementById('hideLiveChatToggle').checked).toBe(true);
+            expect(document.getElementById('hideExtrasToggle').checked).toBe(true);
+            expect(document.getElementById('hideFeedAdsToggle').checked).toBe(true);
+            expect(document.getElementById('hideCommentsToggle').checked).toBe(false);
             done();
         }, 0);
     });
 
-    test('checking Skip ads persists skipAds:true to storage.sync', (done) => {
+    test('unchecking Hide live chat persists hideLiveChat:false', (done) => {
+        bootOptionsPage();
+        setTimeout(() => {
+            const toggle = document.getElementById('hideLiveChatToggle');
+            toggle.checked = false;
+            toggle.dispatchEvent(new Event('change'));
+            expect(chrome.storage.sync.set.mock.calls.slice(-1)[0][0]).toEqual({ hideLiveChat: false });
+            done();
+        }, 0);
+    });
+
+    test('Skip-ads defaults to ON when nothing is stored', (done) => {
+        bootOptionsPage();
+        setTimeout(() => {
+            expect(document.getElementById('skipAdsToggle').checked).toBe(true);
+            done();
+        }, 0);
+    });
+
+    test('unchecking Skip ads persists skipAds:false to storage.sync', (done) => {
         bootOptionsPage();
         setTimeout(() => {
             const toggle = document.getElementById('skipAdsToggle');
-            toggle.checked = true;
+            toggle.checked = false;
             toggle.dispatchEvent(new Event('change'));
             const lastSet = chrome.storage.sync.set.mock.calls.slice(-1)[0][0];
-            expect(lastSet).toEqual({ skipAds: true });
+            expect(lastSet).toEqual({ skipAds: false });
             done();
         }, 0);
     });

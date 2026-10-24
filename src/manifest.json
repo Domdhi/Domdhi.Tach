@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Video Speed & Playback Control — Tach",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Set a default playback speed for every HTML5 video — per-site speeds, quick controls, YouTube cleanup. Free, private, open source.",
   "author": "Domdhi",
   "homepage_url": "https://domdhi.com",

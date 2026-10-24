@@ -3,11 +3,15 @@ description: Triage a signal-intake file into the backlog — classify each sign
 argument-hint: [optional intake file path | {YYYY-MM-DD} | --dry-run]
 ---
 
+<!-- Generated from .agents/skills/triage/references/workflow.md; edit the canonical source, then run node .claude/core/render-shared-agents.js. -->
+
 # /triage — Signal → Backlog Decision Loop
 
-The second **post-MVP lifecycle** command (Tier 2). `/listen` gathers push-from-reality signals into a dated intake file but deliberately does **not** prioritize — it leaves every item un-ranked. `/triage` is the decision half: it reads the newest intake file, classifies each signal, and converts the keepers into ranked backlog stories.
+The second **post-MVP lifecycle** command (Tier 2). `/listen` gathers push-from-reality signals into a dated intake file but deliberately does **not** prioritize — it leaves every item un-ranked. `/triage` is the decision half: it reads the newest intake file **plus the `feature-ideas.md` inbox**, classifies each signal/idea, and converts the keepers into ranked backlog stories.
 
-Shape: like `/interview` — reads a file, asks one-at-a-time about the genuine judgment calls, summarizes. But it **auto-decides the mechanical calls** so it never interrogates the user on signals with one obvious answer. The pairing is `/listen` (gather, no opinions) → `/triage` (decide, minimal questions) → backlog → `/do` / `/run-todo`.
+It drains **two** sources into the one plan of record (`backlog.md`): (1) `/listen` intake — push-from-reality signals; (2) `feature-ideas.md` — the raw idea inbox written by `/brainstorm`. The planning-doc-lifecycle ADR (`docs/.output/findings/reviews/2026-06-13-adr-planning-doc-lifecycle.md` §2) settled that `feature-ideas.md` is an **inbox that must drain into the backlog**, never a second backlog; `/triage` is that ongoing drain (the greenfield drain is `/create:project-epics`). Promoted ideas become backlog stories; the rest stay in the inbox or are killed/deferred via the durable ledger.
+
+Shape: like `/interview` — reads its sources, asks one-at-a-time about the genuine judgment calls, summarizes. But it **auto-decides the mechanical calls** so it never interrogates the user on signals with one obvious answer. The pairing is `/listen` (gather, no opinions) → `/triage` (decide, minimal questions) → backlog → `/do` / `/run-todo`.
 
 ## Telemetry (run first)
 
@@ -31,31 +35,37 @@ Two axes of best practice, baked into the workflow below:
 SCOPE: $ARGUMENTS
 
 - `SCOPE` (optional):
-  - An intake file path or a `{YYYY-MM-DD}` date — triage that file. Default: the newest `docs/.output/intake/*.md`.
-  - `--dry-run` — classify and report, but write **nothing** (no backlog append, no ledger write, no intake markers, no commit). For previewing dispositions.
+  - An intake file path or a `{YYYY-MM-DD}` date — triage that file. Default: the newest `docs/.output/evolution/intake/*.md`.
+  - `--dry-run` — classify and report, but write **nothing** (no backlog append, no ledger write, no intake/inbox markers, no commit). For previewing dispositions.
+  - `--ideas-only` — skip the `/listen` intake entirely and drain **only** `feature-ideas.md`. Use after a `/brainstorm` dump when there's no fresh intake to triage.
+
+**Sources (default):** the resolved `/listen` intake file **and** `docs/work/todo/feature-ideas.md` (the idea inbox) are both folded into one triage set. Naming a specific intake file/date in `SCOPE` still also drains the inbox unless `--ideas-only` is passed (which inverts: inbox only, no intake).
 
 ## Output
 
-- `docs/todo/_backlog.md` — promoted signals appended as stories (under a `## Triage Intake` epic, created if absent).
-- `docs/.output/triage/{YYYY-MM-DD}.md` — the run record (day-rotated; append `## Run {HH:MM}` if today's file exists, never overwrite — like `/listen`).
-- `docs/.output/triage/_decisions.md` — append-only **decision ledger** (every kill/defer, with a fingerprint + reason). This is the anti-resurfacing memory.
+- `docs/work/backlog.md` — promoted signals appended as stories (under a `## Triage Intake` epic, created if absent).
+- `docs/.output/evolution/triage/{YYYY-MM-DD}.md` — the run record (day-rotated; append `## Run {HH:MM}` if today's file exists, never overwrite — like `/listen`).
+- `docs/.output/evolution/triage/_decisions.md` — append-only **decision ledger** (every kill/defer, with a fingerprint + reason). This is the anti-resurfacing memory.
 - The source intake file — each bullet annotated inline with its disposition.
+- `docs/work/todo/feature-ideas.md` — each drained idea annotated inline with its disposition (same markers as the intake file). The inbox is **never deleted from or archived** — annotation is the drain record, so a promoted idea reads `✅ promoted → Story T.{n}` rather than vanishing.
 
 ## Workflow
 
-### Step 1: Resolve the intake file
+### Step 1: Resolve the sources
 
-- If `SCOPE` names a file/date, use it. Else Glob `docs/.output/intake/*.md` and take the newest.
-- **If no intake file exists:** stop and tell the user to run `/listen` first. Do not invent signals.
-- Read the resolved intake file. Read `docs/.output/triage/_decisions.md` if it exists (the ledger).
-- State the resolved file + ledger status in the report.
+- **Intake** (unless `--ideas-only`): if `SCOPE` names a file/date, use it. Else Glob `docs/.output/evolution/intake/*.md` and take the newest.
+- **Inbox** (unless `SCOPE` names a specific intake file/date AND that's clearly the only intent): read `docs/work/todo/feature-ideas.md` if it exists. Treat its un-drained idea bullets as triage input (parsed in Step 2).
+- **If neither source has live items:** stop and tell the user to run `/listen` (for signals) or `/brainstorm` (for ideas) first. Only stop when **both** are absent/empty — a populated `feature-ideas.md` is enough work to proceed on even with no intake file. Do not invent signals.
+- Read the resolved intake file (if any), `feature-ideas.md` (if any), and `docs/.output/evolution/triage/_decisions.md` if it exists (the ledger).
+- State the resolved sources (intake file + whether the inbox was drained) + ledger status in the report.
 
 ### Step 2: Parse + de-dupe + suppress-already-decided
 
-- Extract every signal bullet across all `## Run` sections: `- [origin: {source}] {signal} — {why}`.
-- De-duplicate within the file (the same TODO surfaced by both `git` and `backlog` is one signal).
-- **Consult the ledger.** For each signal, compute a short fingerprint (origin + the signal's key noun phrase — e.g. `git:expiring-flag:payment-shim`). If the fingerprint already appears in `_decisions.md` as `killed` or as `deferred` with a future revisit date not yet reached, **suppress it** — don't re-surface what the user already adjudicated. Count suppressions; report the number ("N signals suppressed by prior triage decisions").
-- The remaining live signals are the triage set.
+- **Intake signals:** extract every signal bullet across all `## Run` sections: `- [origin: {source}] {signal} — {why}`.
+- **Feature ideas:** extract idea bullets from `feature-ideas.md`. These are freeform `/brainstorm` output (no `[origin:]` prefix and no fixed schema — they may be plain bullets, may have headings). Normalize each into a signal with synthetic origin `feature-ideas`: `[origin: feature-ideas] {idea text} — (idea inbox)`. **Skip any bullet already annotated with a disposition marker** (`✅ promoted` / `⏸ deferred` / `❌ killed` / `🔬 research`) — those were drained on a prior run.
+- De-duplicate across both sources (an idea that also surfaced as a `/listen` backlog-drift signal is one item).
+- **Consult the ledger.** For each item, compute a short fingerprint (origin + the item's key noun phrase — e.g. `git:expiring-flag:payment-shim`, `feature-ideas:bulk-csv-export`). If the fingerprint already appears in `_decisions.md` as `killed` or as `deferred` with a future revisit date not yet reached, **suppress it** — don't re-surface what the user already adjudicated. Count suppressions; report the number ("N items suppressed by prior triage decisions").
+- The remaining live items are the triage set.
 
 ### Step 3: Score Severity (objective — no user)
 
@@ -110,7 +120,7 @@ These are lenses — surface the numbers; if the user disagrees in the Step 5 su
 
 Output-persistence convention: everything hits disk **before** the report. Chat-only triage is lost on compaction.
 
-**7a. Promote → append stories to `docs/todo/_backlog.md`.** Under a `## Triage Intake` epic (create it once if absent). Use the project-planning story format, annotated:
+**7a. Promote → append stories to `docs/work/backlog.md`.** Under a `## Triage Intake` epic (create it once if absent). Use the project-planning story format, annotated:
 
 ```
 * **Story T.{n} ({Domain}): {Title}**
@@ -123,7 +133,7 @@ Output-persistence convention: everything hits disk **before** the report. Chat-
   * **Dependencies:** {None | Story X.Y}
 ```
 
-**7b. Kill / Defer → append to the ledger `docs/.output/triage/_decisions.md`** (append-only):
+**7b. Kill / Defer → append to the ledger `docs/.output/evolution/triage/_decisions.md`** (append-only):
 
 ```
 - {YYYY-MM-DD} · {fingerprint} · **killed** — {reason}
@@ -132,14 +142,15 @@ Output-persistence convention: everything hits disk **before** the report. Chat-
 
 **7c. Research → append a spike story** to the backlog (`Estimate: spike`, AC = "the open question is answered") and note the suggested follow-up command (`/research` or `/investigate`).
 
-**7d. Annotate the source intake file inline** — append a disposition marker to each triaged bullet so a re-read of the intake shows what happened:
+**7d. Annotate each source inline** — append a disposition marker to each triaged bullet (in **both** the intake file and `feature-ideas.md`, whichever the item came from) so a re-read of the source shows what happened:
 `✅ promoted → Story T.{n}` · `⏸ deferred: {hint}` · `❌ killed: {reason}` · `🔬 research: {spike}`
+This is the **drain record** for `feature-ideas.md` — the inbox is never deleted from or archived, so the annotation is what marks an idea as drained (and what Step 2 skips on the next run). Do not remove drained idea bullets.
 
-**7e. Write the run record** `docs/.output/triage/{YYYY-MM-DD}.md` (day-rotated; `## Run {HH:MM}` if the file exists) — the decision table (signal · severity · decision-type · disposition · ICE/reason).
+**7e. Write the run record** `docs/.output/evolution/triage/{YYYY-MM-DD}.md` (day-rotated; `## Run {HH:MM}` if the file exists) — the decision table (signal · severity · decision-type · disposition · ICE/reason).
 
 ### Step 8: Commit (main agent — skip if `--dry-run`)
 
-Follow the **Post-Command Commit Convention** in CLAUDE.md. Stage the backlog, the intake file, and the triage run record + ledger. Write the message to `docs/.output/.commit-msg`, then `node .claude/core/commit.js` (inline `git commit -m` is blocked).
+Follow the **Post-Command Commit Convention** in `.agents/startup-reference.md`. Stage the backlog, the intake file, `feature-ideas.md` (if it was drained), and the triage run record + ledger. Write the message to `docs/.output/.state/.commit-msg`, then `node .claude/core/commit.js` (inline `git commit -m` is blocked).
 Message: `docs: /triage — {P} promoted, {D} deferred, {K} killed ({YYYY-MM-DD})`.
 
 ### Step 9: Report
@@ -147,7 +158,7 @@ Message: `docs: /triage — {P} promoted, {D} deferred, {K} killed ({YYYY-MM-DD}
 ```
 ## /triage — {YYYY-MM-DD}
 
-**Intake:** {resolved file}  ·  **Ledger:** {N suppressed by prior decisions}
+**Intake:** {resolved file, or "none — --ideas-only"}  ·  **Inbox:** {`feature-ideas.md`: M ideas drained, or "not present"}  ·  **Ledger:** {N suppressed by prior decisions}
 **Commit:** {hash, or "dry-run — nothing written"}
 
 | Disposition | Count |
@@ -179,6 +190,8 @@ If the triage set is empty (everything suppressed or zero live signals), say so 
 - **Silent caps.** If you can't triage every User-Challenge signal in ≤3 rounds, defer the tail **with an explicit note** — never quietly drop the overflow.
 - **Chat-only output.** The backlog stories, ledger, run record, and intake markers are the artifacts. They hit disk before the report (except under `--dry-run`, which writes nothing by design and says so).
 
-## Note: `/listen` suppression is forward-looking
+## Note: the two drains, and forward-looking suppression
 
-`/triage` writes the decision ledger and consults it to avoid re-asking. Wiring `/listen` to *also* read the ledger and suppress killed signals at gather-time (so they never re-enter intake at all) is a natural future enhancement — not built here. For now, suppression happens at triage-time, which is sufficient to stop the user re-adjudicating.
+`/triage` is the **ongoing drain** of `feature-ideas.md` into `backlog.md` (the greenfield drain is `/create:project-epics`, which consumes the inbox + requirements to seed the first backlog). Per the planning-doc-lifecycle ADR, the inbox is a frictionless capture surface that must drain into the plan of record — it is never a second backlog, and it is never archived (unlike `backlog.md`/`TODO_*`, which `/evolve` archives at cycle rollover). The drain is non-destructive: drained ideas are annotated in place, and the ledger suppresses any that were killed/deferred so the next run doesn't re-ask.
+
+Suppression is **forward-looking** the same way for both sources: `/triage` writes the decision ledger and consults it to avoid re-adjudicating. `/listen` *also* reads the ledger and suppresses killed/active-deferred signals at gather-time (see `/listen` Step 1b), so adjudicated signals never re-enter intake in the first place — suppression now happens at both gather-time (`/listen`) and triage-time (`/triage`).

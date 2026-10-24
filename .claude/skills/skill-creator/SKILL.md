@@ -1,6 +1,6 @@
 ---
 name: skill-creator
-description: "Create new skills, improve existing ones, and measure skill performance with a differential eval harness. Use WHEN authoring a SKILL.md, editing/optimizing an existing skill, running evals or benchmarks on a skill, or tuning a skill's description for better triggering. Triggers: create skill, new skill, improve skill, edit skill, skill eval, benchmark skill, skill description, undertrigger, evals.json, with_skill vs without_skill."
+description: "Use WHEN authoring a SKILL.md, editing/optimizing an existing skill, running evals or benchmarks on a skill, or tuning a skill's description for better triggering. Create new skills, improve existing ones, and measure skill performance with a differential eval harness. Triggers: create skill, new skill, improve skill, edit skill, skill eval, benchmark skill, skill description, undertrigger, evals.json, with_skill vs without_skill."
 metadata:
   version: 1.0.0
   author: Domdhi.Agents
@@ -9,9 +9,11 @@ user-invocable: false
 allowed-tools: Read Write Edit Bash Grep Glob
 ---
 
+<!-- Generated from .agents/skills/skill-creator/SKILL.md; edit the canonical source, then run node .claude/core/render-shared-agents.js. -->
+
 # Skill Creator
 
-A skill for **creating new skills and iteratively improving them with measured evidence.** Ported and tuned from Anthropic's official `skill-creator` (anthropics/skills) for this toolkit: **zero-dependency Node** instead of Python, this repo's **subagent dispatch**, and workspaces under `docs/.output/skill-evolution/`.
+A skill for **creating new skills and iteratively improving them with measured evidence.** Ported and tuned from Anthropic's official `skill-creator` (anthropics/skills) for this toolkit: **zero-dependency Node** instead of Python, this repo's **subagent dispatch**, and workspaces under `docs/.output/evolution/skills/`.
 
 **This is the operational complement to two other parts of the system:**
 - **`skill-authoring`** owns the *doctrine* — when a skill is warranted, the evidence-first rule, description/CSO conventions, the spec. Read it for the "why."
@@ -94,7 +96,7 @@ Full schema (including `assertions`, added later): `references/schemas.md`.
 One continuous sequence — don't stop partway. Put results in the workspace:
 
 ```
-docs/.output/skill-evolution/{date}/{skill}-workspace/
+docs/.output/evolution/skills/{date}/{skill}-workspace/
   iteration-1/  iteration-2/  ...
     eval-<id>-<descriptive-name>/
       eval_metadata.json
@@ -198,6 +200,8 @@ The description determines whether Claude invokes the skill at all. After creati
 ## Packaging
 
 If distributing the skill as a file: `node .claude/skills/skill-creator/scripts/package-skill.js <skill-dir>` (zips to `<name>.skill`, falls back to tar). In THIS repo, skills usually ship via the template/publish pipeline, not as standalone `.skill` files — packaging is mainly for handing a skill to an external agent.
+
+**External skills are first-class targets.** The Create/Eval/Improve loop is empirically validated on skills this toolkit does NOT own: `ciso-nist-advisor` (external, 2026-06-25) improved +14.6 then +62.5 pass-rate points across two IMPROVE rounds, each gated by the differential eval. Don't treat non-toolkit skills as an unproven case — the same evidence-first + differential-eval doctrine applies unchanged; only the ship path differs (hand the improved skill back as a packaged `.skill`/PR instead of the template pipeline).
 
 ## Reference files
 

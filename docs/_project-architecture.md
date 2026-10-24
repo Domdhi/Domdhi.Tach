@@ -16,7 +16,7 @@ Tach is a Chromium browser extension (Manifest V3) that gives users control over
 
 The extension follows the standard MV3 topology: a service worker for lifecycle events, a content script for direct DOM manipulation, and `chrome.storage.sync` for cross-device settings persistence. Components communicate via Chrome's message-passing API. There is intentionally no build step — plain ES6+ JavaScript loaded directly.
 
-It is a lightweight, single-purpose utility with no backend, no external network calls, no analytics, and no tracking. The intended distribution target is the **Chrome Web Store (planned — not yet published)**; it currently runs as an unpacked extension in developer mode.
+It is a lightweight, single-purpose utility with no backend, no external network calls, no analytics, and no tracking. It is **published on the Chrome Web Store** (first submitted 2026-06-08) and can also be loaded unpacked from `src/` in developer mode.
 
 ### Architecture Style
 Browser Extension — event-driven, message-passing. No build/bundler.
@@ -87,13 +87,14 @@ Browser Extension — event-driven, message-passing. No build/bundler.
 - **API Surface**: Handles `setSpeed` and `getSpeed` messages. Speed is clamped to `SPEED_MIN`–`SPEED_MAX` (0.1–4.0). Exports internals under `module.exports` for Jest (guarded by a `typeof module` check, ignored by the browser).
 
 ### YouTube Cleanup Content Script (`content-youtube.js`) — Epic 5
-- **Responsibility**: A second content script scoped to `*://*.youtube.com/*` (no new permissions). Hides Shorts shelves/links (FR-14) and the comments thread + live/premiere live-chat panel (FR-15) via `hideShorts`/`hideComments` (default OFF); suppresses the chat panel in fullscreen via `hideChatFullscreen` (FR-17, default ON); auto-skips ads by seeking the ad `<video>` to its end via `skipAds` (Integration #4, default OFF). Also extracts the transcript (Epic 6). Isolated from `content.js` so site-specific DOM logic never touches the universal speed controller.
+- **Responsibility**: A second content script scoped to `*://*.youtube.com/*` (no new permissions). Hides Shorts shelves/links (FR-14) the comments thread (FR-15, `hideComments`, default OFF), the live/premiere live-chat panel (`hideLiveChat`, default ON) and "extras" — Playables/games, community posts, news shelves (`hideExtras`, default ON), and sponsored feed tiles (`hideFeedAds`, default ON) — via `hideShorts` (default OFF); suppresses the chat panel in fullscreen via `hideChatFullscreen` (FR-17, default ON); auto-skips ads by seeking the ad `<video>` to its end via `skipAds` (Integration #4, default ON). Also extracts the transcript (Epic 6). Isolated from `content.js` so site-specific DOM logic never touches the universal speed controller.
 - **Technology**: Plain JS, DOM APIs, MutationObserver
 - **Dependencies**: `chrome.storage.sync`, `chrome.storage.onChanged`
 - **API Surface**: `hideBySelectors` fail-safe sweep (try/catch per selector and per node — NFR-R2, never throws on a selector miss); `applyCleanup` (hide) + `unhideAll` (revert) are symmetric so a live toggle change takes effect without a reload; MutationObserver (100ms debounce, < NFR-P5 200ms) re-applies across SPA navigation. `display:none !important` defeats YouTube's fullscreen re-show of the live-chat panel. Carries the 4th `DEFAULT_SETTINGS` copy.
 
 ### Popup UI (`popup/`)
-- **Responsibility**: Action popup with a range slider (0.1–4.0), preset buttons, +/- (0.25 step), reset (1.0x), and a "faster" button. ~300px wide with CSS custom properties and animations. Supports keyboard nav (arrows, R, F).
+- **Responsibility**: Action popup with a draggable tachometer dial (0.25 grid; `gaugeSpeedFromAngle` pins a pointer below the arch baseline to the nearest end), a range slider, preset buttons, +/- (0.05 step), reset (1.0x), and a "faster" button. Supports keyboard nav (arrows, R, F).
+- **Layout contract**: fixed 300px root (`html{width:300px;overflow:hidden}`) so the popup never floats wider after a tall view. Scrolling lives on `body` (`max-height:600px; overflow-y:auto; scrollbar-gutter:stable`), and `body`'s right padding is `calc(16px - --sb)` where `--sb` is the scrollbar lane measured in `popup.js`. Content is therefore always 268px wide with 16px each side, scrollbar in the right margin. Do NOT use `scrollbar-gutter: both-edges` or a root scrollbar: Chrome sizes the popup to the root width and ignores gutters, which shifted content right / clipped the edge.
 - **Technology**: HTML/CSS/JS
 - **Dependencies**: `chrome.tabs`, `chrome.storage.sync`, `chrome.runtime.getManifest()` (for version display)
 - **API Surface**: Sends `setSpeed` to the active tab's content script; reads current speed directly from storage (does not use the `getSpeed` message).
@@ -131,9 +132,12 @@ roadmap grows this into a settings object as features land (see Future Direction
 | `redlineSpeed` | number | `2.0` | REDLINE button | Target speed the popup's `[ REDLINE ]` button jumps to (set in options; steps up the 0.25 grid when already at/above it) |
 | `perSiteSpeeds` | object (domain → number) | `{}` | FR-11 (per-site presets) | Per-domain speed overrides; resolution precedence is site → global default. Capped at `MAX_PER_SITE_ENTRIES` (100) per NFR-SC2. **The dial/hotkeys persist a speed change here (only) when the domain is "remembered"; the global default is options-owned** |
 | `hideShorts` | boolean | `false` | FR-14 | Hide YouTube Shorts shelves/links |
-| `hideComments` | boolean | `false` | FR-15 | Hide the YouTube comments thread AND the live/premiere live-chat panel (persists into fullscreen) |
-| `hideChatFullscreen` | boolean | `true` | FR-17 | Suppress the live/premiere chat panel in YouTube FULLSCREEN only (collapses the chat column + nudges the player to re-fit). **Ships ON** — the one cleanup default enabled, by user request. Independent of `hideComments` |
-| `skipAds` | boolean | `false` | Integration #4 | Auto-skip YouTube ads by seeking the ad `<video>` to its end (the only viable mechanism — see the 2026-06-06 feasibility spike). Ships OFF (Web Store caution) |
+| `hideComments` | boolean | `false` | FR-15 | Hide the YouTube comments thread only |
+| `hideLiveChat` | boolean | `true` | FR-15 | Hide the live/premiere live-chat panel in all modes (persists into fullscreen). Split out of `hideComments`; ships ON by owner request |
+| `hideFeedAds` | boolean | `true` | FR-15 | Hide sponsored tiles in feeds/search/sidebar (`ytd-ad-slot-renderer`, incl. the wrapping rich item). Separate from `skipAds` (in-player video ads). Ships ON by owner request |
+| `hideExtras` | boolean | `true` | FR-15 | Hide YouTube "extras": Playables/games shelves + sidebar entry, community posts, Breaking-news shelves. Ships ON by owner request |
+| `hideChatFullscreen` | boolean | `true` | FR-17 | Suppress the live/premiere chat panel in YouTube FULLSCREEN only (collapses the chat column + nudges the player to re-fit). **Ships ON** — the one cleanup default enabled, by user request. Independent of `hideLiveChat` |
+| `skipAds` | boolean | `true` | Integration #4 | Auto-skip YouTube ads by seeking the ad `<video>` to its end (the only viable mechanism — see the 2026-06-06 feasibility spike). Ships ON (owner request); toggleable in options |
 | `theme` | enum (`auto`/`light`/`dark`) | `auto` | FR-13 | Popup theme preference (popup applies via `applyThemePreference`; options "Appearance" selector sets it) |
 | `customPresets` | number[] | `[0.5, 0.75, 1.0, 1.25, 1.5, 2.0]` | FR-12 | User-chosen popup preset buttons (fixed-length 6; editable in options, rendered in popup) |
 | `accentColor` | string (hex) | `#e8590c` | FR-14 | User-settable UI accent. `applyAccentColor` sets `--primary-color`/`--primary-hover`/`--on-accent` with a WCAG-AA-safe darker fill (or dark-text flip). Baked toolbar PNG does NOT follow this |
@@ -160,8 +164,11 @@ const DEFAULT_SETTINGS = {
     customPresets: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0],    // popup preset buttons
     hideShorts: false,
     hideComments: false,
+    hideLiveChat: true,
+    hideExtras: true,
+    hideFeedAds: true,
     hideChatFullscreen: true,                           // FR-17 — ships ON (fullscreen-only chat hide)
-    skipAds: false,                                     // Integration #4 — ad-skip via seek-to-end
+    skipAds: true,                                      // Integration #4 — ad-skip via seek-to-end
     theme: 'auto',                                      // FR-13 — 'auto' | 'light' | 'dark'
     accentColor: '#e8590c',                             // FR-14 — user-settable UI accent (default orange)
 };
@@ -332,7 +339,7 @@ The original roadmap is **fully shipped** (Epics 0–8). For history:
 1. *(Done — Epics 2–5)* Testing/E2E (Playwright runner + specs, integration coverage); keyboard shortcuts + per-site presets; YouTube cleanup (`content-youtube.js`, opt-in toggles).
 2. *(Done — Epics 6–7)* Custom presets, dark/light/auto theme + accent color, shared `theme.css`, popup/options redesign, in-popup settings view.
 3. *(Done — Epic 5/6)* Transcript copy — scrape the YouTube transcript panel + `clipboardWrite` on click.
-4. *(Done — Epic 8)* Web Store readiness — privacy policy + permission justifications, whitelist packager (`npm run package`), store listing. Remaining is **manual submission** (capture screenshots, host the privacy policy, upload `dist/*.zip`).
+4. *(Done — Epic 8)* Web Store readiness — privacy policy + permission justifications, whitelist packager (`npm run package`), store listing. Submitted 2026-06-08 and live; updates follow the same path (bump version, `npm run package`, upload `dist/*.zip` in the Dashboard).
 
 > Scope broadened from "video speed" to a general video/YouTube utility. `host_permissions: <all_urls>` and the four permissions are justified in `docs/privacy-policy.md` for the Web Store. Post-v1 ideas live in `docs/todo/_feature-ideas.md`.
 

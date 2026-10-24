@@ -3,6 +3,8 @@ description: Capture a conversational insight to the daily log for memory acquis
 argument-hint: [what to remember — a decision, insight, or discovery]
 ---
 
+<!-- Generated from .agents/skills/remember/references/workflow.md; edit the canonical source, then run node .claude/core/render-shared-agents.js. -->
+
 # Remember
 
 Pin a conversational insight to the memory pipeline. Use when a Q&A exchange, investigation, or design decision should persist beyond the current session — things that git commits and TODO files can't capture.
@@ -37,7 +39,7 @@ If `NOTE` is empty, review the last ~10 messages in conversation and distill the
 node .claude/core/daily-log.js note "{the synthesized note}"
 ```
 
-The note is appended to `docs/.output/memories/daily/{YYYY-MM-DD}.md` with a `## HH:MM — remember` header.
+The note is appended to `docs/.output/.state/memory-daily/{YYYY-MM-DD}.md` with a `## HH:MM — remember` header.
 
 ### Step 3: Report
 

@@ -4,7 +4,7 @@ Expert in product requirements documentation. Produces comprehensive PRDs that d
 
 ## Document Template
 
-The document you produce — the canonical, scaffold-blessed template — lives in `../assets/_project-requirements.md` (raw, with the `<!-- @@template -->` first-line marker). Read it to know the artifact's structure; `scaffold.js` seeds `docs/_project-requirements.md` from the same file.
+The document you produce — the canonical, scaffold-blessed template — lives in `../assets/requirements.md` (raw, with the `<!-- @@template -->` first-line marker). Read it to know the artifact's structure; `scaffold.js` seeds `docs/product/requirements.md` from the same file.
 
 ## Required Sections Checklist
 
@@ -49,6 +49,6 @@ A PRD is COMPLETE when it has:
 8. "Is there an existing data model or database to work with?"
 
 ## Output Paths
-- Reads from: `docs/_project-brief.md` (recommended)
-- Produces: `docs/_project-requirements.md`
-- Feeds into: `docs/_project-architecture.md`, `docs/_project-design.md`, `docs/todo/_backlog.md`
+- Reads from: `docs/product/brief.md` (recommended)
+- Produces: `docs/product/requirements.md`
+- Feeds into: `docs/architecture/overview.md`, `docs/design/spec.md`, `docs/work/backlog.md`

@@ -2,8 +2,9 @@
  * content-youtube.js — YouTube content cleanup module (Epic 5).
  *
  * Scoped to YouTube only (manifest `matches: *://*.youtube.com/*`). Hides Shorts
- * (FR-14) and comments / live-chat (FR-15) based on the synced `hideShorts` /
- * `hideComments` toggles (both default OFF — cleanup is opt-in), and suppresses
+ * (FR-14), comments (FR-15), live chat and "extras" (Playables, community posts,
+ * news shelves) via the synced `hideShorts` / `hideComments` (both default OFF) and
+ * `hideLiveChat` / `hideExtras` (default ON) toggles, and suppresses
  * the live/premiere chat panel in FULLSCREEN via the `hideChatFullscreen` toggle
  * (FR-22, default ON — see applyFullscreenChatStyle). Also optionally auto-skips
  * ads by seeking the ad <video> to its end via the `skipAds` toggle (FR-21,
@@ -56,6 +57,12 @@ function resolveSettings(stored) {
             ? s.hideShorts : DEFAULT_SETTINGS.hideShorts,
         hideComments: s.hideComments !== undefined
             ? s.hideComments : DEFAULT_SETTINGS.hideComments,
+        hideLiveChat: s.hideLiveChat !== undefined
+            ? s.hideLiveChat : DEFAULT_SETTINGS.hideLiveChat,
+        hideExtras: s.hideExtras !== undefined
+            ? s.hideExtras : DEFAULT_SETTINGS.hideExtras,
+        hideFeedAds: s.hideFeedAds !== undefined
+            ? s.hideFeedAds : DEFAULT_SETTINGS.hideFeedAds,
         hideChatFullscreen: s.hideChatFullscreen !== undefined
             ? s.hideChatFullscreen : DEFAULT_SETTINGS.hideChatFullscreen,
         skipAds: s.skipAds !== undefined
@@ -109,32 +116,81 @@ const SHORTS_SELECTORS = [
 ];
 
 /**
- * CSS selectors for the comments section AND the live/premiere live-chat panel
- * (FR-15, Story 4.4).
- *
- * Two distinct targets:
- *  1. The static comments thread under a watch page (`ytd-comments#comments`).
- *  2. The live/premiere LIVE-CHAT panel (`ytd-live-chat-frame`, `#chat-container`,
- *     `iframe#chatframe`). This is the one that stays pinned open on live and
- *     premiere videos AND persists into fullscreen — YouTube re-shows it via its
- *     own styles, which is exactly why hideBySelectors applies
- *     `display:none !important` (a plain class/`display:none` loses to YouTube's
- *     inline/important rules and the panel reappears in fullscreen).
+ * CSS selectors for the static comments thread under a watch page (FR-15,
+ * Story 4.4). The live-chat panel is a SEPARATE toggle — see LIVE_CHAT_SELECTORS.
  */
 const COMMENTS_SELECTORS = [
-    // Static comments thread. (Bare `#comments` dropped per sweep E5-3 — it is
-    // subsumed by ytd-comments#comments and only widened the blast radius.)
+    // (Bare `#comments` dropped per sweep E5-3 — it is subsumed by
+    // ytd-comments#comments and only widened the blast radius.)
     'ytd-comments#comments',
-    // Live / premiere live-chat panel (incl. the fullscreen-persistent case).
+];
+
+/**
+ * CSS selectors for the live/premiere LIVE-CHAT panel (`hideLiveChat`; was part
+ * of FR-15's hideComments). The panel stays pinned open on live and premiere
+ * videos AND persists into fullscreen — YouTube re-shows it via its own styles,
+ * which is exactly why hideBySelectors applies `display:none !important` (a plain
+ * class/`display:none` loses to YouTube's inline/important rules and the panel
+ * reappears in fullscreen).
+ */
+const LIVE_CHAT_SELECTORS = [
     'ytd-live-chat-frame',
     '#chat-container',
     'iframe#chatframe',
+];
+
+/**
+ * CSS selectors for YouTube "extras" (`hideExtras`): Playables (games) shelves,
+ * entries and results, plus community-post shelves. Anchored on the stable
+ * `/playables` link path rather than YouTube's churning component names; every
+ * `:has()` form is skipped harmlessly where unsupported (hideBySelectors
+ * try/catch, NFR-R2). Text-only shelves (e.g. "Breaking news") are matched by
+ * title in hideShelvesByTitle instead.
+ */
+const EXTRAS_SELECTORS = [
+    // Playables shelf wrapper on home/subs/search.
+    'ytd-rich-section-renderer:has(a[href*="/playables"])',
+    'ytd-item-section-renderer:has(a[href*="/playables"])',
+    'ytd-shelf-renderer:has(a[href*="/playables"])',
+    // Individual Playables tiles in grids / results.
+    'ytd-rich-item-renderer:has(a[href*="/playables"])',
+    'ytd-video-renderer:has(a[href*="/playables"])',
+    // Sidebar / mini-sidebar Playables entry.
+    'ytd-guide-entry-renderer:has(a[href*="/playables"])',
+    'ytd-mini-guide-entry-renderer:has(a[href*="/playables"])',
+    'ytd-mini-guide-entry-renderer[aria-label="Playables"]',
+    // Community posts shelves / inline posts.
+    'ytd-rich-section-renderer:has(ytd-post-renderer)',
+    'ytd-item-section-renderer:has(ytd-post-renderer)',
+    'ytd-post-renderer',
+];
+
+/**
+ * CSS selectors for sponsored tiles rendered into feeds (`hideFeedAds`). Verified
+ * live 2026-10-24: on the home feed `ytd-rich-item-renderer:has(ytd-ad-slot-renderer)`
+ * matched exactly the 4 "Sponsored" tiles. The bare slot selector covers search
+ * results and the watch sidebar, where the slot is not wrapped in a rich item.
+ * (Video ads inside the player are handled by skipAds, not here.)
+ */
+const FEED_AD_SELECTORS = [
+    'ytd-rich-item-renderer:has(ytd-ad-slot-renderer)',
+    'ytd-ad-slot-renderer',
+];
+
+/** Shelf titles (case-insensitive, exact) hidden by hideShelvesByTitle. */
+const EXTRAS_SHELF_TITLES = [
+    'playables',
+    'breaking news',
+    'latest youtube posts',
 ];
 
 /** Live cleanup state — updated from storage on load and on change. */
 let currentSettings = {
     hideShorts: DEFAULT_SETTINGS.hideShorts,
     hideComments: DEFAULT_SETTINGS.hideComments,
+    hideLiveChat: DEFAULT_SETTINGS.hideLiveChat,
+    hideExtras: DEFAULT_SETTINGS.hideExtras,
+    hideFeedAds: DEFAULT_SETTINGS.hideFeedAds,
     hideChatFullscreen: DEFAULT_SETTINGS.hideChatFullscreen,
     skipAds: DEFAULT_SETTINGS.skipAds,
 };
@@ -424,9 +480,60 @@ function hideShorts(root) {
     return hideBySelectors(SHORTS_SELECTORS, root);
 }
 
-/** Hide comments + live-chat when enabled (FR-15). Selectors land in Story 4.4. */
+/** Hide the comments thread when enabled (FR-15). */
 function hideComments(root) {
     return hideBySelectors(COMMENTS_SELECTORS, root);
+}
+
+/** Hide the live/premiere chat panel when enabled (hideLiveChat). */
+function hideLiveChat(root) {
+    return hideBySelectors(LIVE_CHAT_SELECTORS, root);
+}
+
+/**
+ * Hide shelf/section containers whose visible title exactly matches one of
+ * `titles` (case-insensitive) — for extras with no stable selector to anchor
+ * on. Reads the shelf's own title element, so a video merely NAMED
+ * "Breaking news" inside a feed is never hidden. Returns the number hidden.
+ * Never throws (NFR-R2).
+ */
+function hideShelvesByTitle(titles, root) {
+    const scope = root || (typeof document !== 'undefined' ? document : null);
+    if (!scope || !scope.querySelectorAll) return 0;
+    let hidden = 0;
+    let shelves;
+    try {
+        shelves = scope.querySelectorAll(
+            'ytd-rich-section-renderer, ytd-item-section-renderer, ytd-shelf-renderer');
+    } catch (_) {
+        return 0;
+    }
+    for (const shelf of shelves) {
+        try {
+            const titleEl = shelf.querySelector('#title, #title-text, h2');
+            const text = titleEl ? (titleEl.textContent || '').trim().toLowerCase() : '';
+            if (!text || !titles.includes(text)) continue;
+            if (shelf.style && shelf.style.getPropertyValue('display') !== 'none') {
+                shelf.style.setProperty('display', 'none', 'important');
+            }
+            if (shelf.classList) shelf.classList.add(VSC_YT_HIDDEN_CLASS);
+            hidden++;
+        } catch (_) {
+            // A single shelf failing must not stop the sweep (NFR-R2).
+        }
+    }
+    return hidden;
+}
+
+/** Hide sponsored feed/sidebar tiles when enabled (hideFeedAds). */
+function hideFeedAds(root) {
+    return hideBySelectors(FEED_AD_SELECTORS, root);
+}
+
+/** Hide YouTube extras (Playables, community posts, news shelves) when enabled. */
+function hideExtras(root) {
+    return hideBySelectors(EXTRAS_SELECTORS, root)
+        + hideShelvesByTitle(EXTRAS_SHELF_TITLES, root);
 }
 
 /**
@@ -438,6 +545,9 @@ function applyCleanup(root) {
     let total = 0;
     if (currentSettings.hideShorts) total += hideShorts(root);
     if (currentSettings.hideComments) total += hideComments(root);
+    if (currentSettings.hideLiveChat) total += hideLiveChat(root);
+    if (currentSettings.hideExtras) total += hideExtras(root);
+    if (currentSettings.hideFeedAds) total += hideFeedAds(root);
     return total;
 }
 
@@ -467,7 +577,9 @@ let observer = null;
 function startObserver() {
     if (observer || typeof MutationObserver === 'undefined') return;
     observer = new MutationObserver(() => {
-        if (currentSettings.hideShorts || currentSettings.hideComments) {
+        if (currentSettings.hideShorts || currentSettings.hideComments
+            || currentSettings.hideLiveChat || currentSettings.hideExtras
+            || currentSettings.hideFeedAds) {
             scheduleCleanup();
         }
     });
@@ -754,6 +866,9 @@ function init() {
     getSettings((settings) => {
         currentSettings.hideShorts = settings.hideShorts;
         currentSettings.hideComments = settings.hideComments;
+        currentSettings.hideLiveChat = settings.hideLiveChat;
+        currentSettings.hideExtras = settings.hideExtras;
+        currentSettings.hideFeedAds = settings.hideFeedAds;
         currentSettings.hideChatFullscreen = settings.hideChatFullscreen;
         currentSettings.skipAds = settings.skipAds;
         applyCleanup(document);
@@ -766,9 +881,14 @@ function init() {
         chrome.storage.onChanged.addListener((changes, area) => {
             if (area !== 'sync') return;
             if (!changes.hideShorts && !changes.hideComments
+                && !changes.hideLiveChat && !changes.hideExtras
+                && !changes.hideFeedAds
                 && !changes.hideChatFullscreen && !changes.skipAds) return;
             if (changes.hideShorts) currentSettings.hideShorts = changes.hideShorts.newValue;
             if (changes.hideComments) currentSettings.hideComments = changes.hideComments.newValue;
+            if (changes.hideLiveChat) currentSettings.hideLiveChat = changes.hideLiveChat.newValue;
+            if (changes.hideExtras) currentSettings.hideExtras = changes.hideExtras.newValue;
+            if (changes.hideFeedAds) currentSettings.hideFeedAds = changes.hideFeedAds.newValue;
             // Fullscreen-chat is CSS-only and independent of the class-based
             // cleanup below: inject/remove its style on toggle (it self-applies
             // only in fullscreen via the [fullscreen]-scoped rule).
@@ -824,9 +944,17 @@ if (typeof module !== 'undefined' && module.exports) {
         VSC_YT_HIDDEN_CLASS,
         SHORTS_SELECTORS,
         COMMENTS_SELECTORS,
+        LIVE_CHAT_SELECTORS,
+        EXTRAS_SELECTORS,
+        EXTRAS_SHELF_TITLES,
+        FEED_AD_SELECTORS,
+        hideFeedAds,
         hideBySelectors,
         hideShorts,
         hideComments,
+        hideLiveChat,
+        hideExtras,
+        hideShelvesByTitle,
         applyCleanup,
         unhideAll,
         FS_CHAT_STYLE_ID,

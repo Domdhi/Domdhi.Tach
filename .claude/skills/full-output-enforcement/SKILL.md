@@ -9,11 +9,15 @@ user-invocable: false
 allowed-tools: Read
 ---
 
+<!-- Generated from .agents/skills/full-output-enforcement/SKILL.md; edit the canonical source, then run node .claude/core/render-shared-agents.js. -->
+
 # Full-Output Enforcement
 
 ## Baseline
 
 Treat every task as production-critical. A partial output is a broken output. Do not optimize for brevity — optimize for completeness. If the user asks for a full file, deliver the full file. If the user asks for 5 components, deliver 5 components. No exceptions.
+
+This is the output-completeness face of the project's operating standard ("resolve it or don't report it" — complete every task down to the last detail). The canonical statement and its verification gate live in `.claude/skills/verification-before-completion/SKILL.md`; this skill enforces the *no-truncation* half of it.
 
 ## Banned Output Patterns
 

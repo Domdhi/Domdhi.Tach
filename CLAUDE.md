@@ -65,9 +65,27 @@ playback speed on every site and offers quick manual control.
   page (still wired as `options_page`). options.js adds `.embedded` to `<html>`
   when framed → compact layout. Note: an explicit `display:` beats the UA
   `[hidden]` rule, so any toggled element needs its own `[hidden]{display:none}`.
+- Popup layout: root is a fixed 300px; scrolling lives on `body` with
+  `scrollbar-gutter: stable` and right padding `calc(16px - var(--sb))` (`--sb`
+  measured in popup.js). Never put a scrollbar or `scrollbar-gutter: both-edges`
+  on the root — Chrome sizes the popup to the root width and ignores gutters, so
+  content goes off-center / clipped.
+- Releases: bump `version` in `src/manifest.json` + `package.json` +
+  `package-lock.json` (a test checks they match), add a `CHANGELOG.md` entry,
+  `npm test`, `npm run package`, then upload `dist/Tach-v<version>.zip` in the
+  Chrome Web Store Developer Dashboard (manual; no automated publish). Tach is
+  LIVE on the Store — installed copies auto-update after approval; a new
+  permission would disable the extension until the user accepts it.
+- Agent tooling is project-local: `.claude/skills/` + `.agents/skills/`
+  (`chrome-extensions`, `modern-web-guidance`; `skills-lock.json`) and the
+  `chrome-devtools` MCP in `.mcp.json`.
 - No tracking / no external requests (Chrome Web Store target).
 
 ## Docs
-- docs/_project-architecture.md, docs/_project-context.md
+- docs/_project-architecture.md, docs/_project-context.md, CHANGELOG.md
 
 `.claude/` Domdhi.Agents conventions are active.
+
+# === Domdhi.Agents managed block — do not edit between markers ===
+@.agents/startup.md
+# === End Domdhi.Agents managed block ===

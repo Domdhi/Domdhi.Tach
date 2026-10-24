@@ -3,9 +3,11 @@ description: Create a technical architecture document with tech stack decisions,
 argument-hint: [project name or prd path] [--yolo]
 ---
 
+<!-- Generated from .agents/skills/create-project-architecture/references/workflow.md; edit the canonical source, then run node .claude/core/render-shared-agents.js. -->
+
 # Create Architecture
 
-Create a technical architecture document. Produces `docs/_project-architecture.md`.
+Create a technical architecture document. Produces `docs/architecture/overview.md`.
 
 ## Telemetry (run first)
 
@@ -33,19 +35,19 @@ INPUT: $ARGUMENTS
 If `$ARGUMENTS` contains `--yolo`, set YOLO_MODE = true. Strip `--yolo` from INPUT before continuing.
 
 #### 1b. Hard Gate: Require real PRD
-Read the first line of `docs/_project-requirements.md`. Check that it exists AND does not contain `<!-- @@template -->`.
+Read the first line of `docs/product/requirements.md`. Check that it exists AND does not contain `<!-- @@template -->`.
 
-**If `docs/_project-requirements.md` is missing or template-only:**
+**If `docs/product/requirements.md` is missing or template-only:**
 - If YOLO_MODE → warn: "No PRD found. Proceeding in yolo mode with Interview Mode." → go to Interview Mode
-- Otherwise → **STOP**: "`docs/_project-requirements.md` has not been created yet. Run `/project-requirements` first. Use `--yolo` to bypass this gate."
+- Otherwise → **STOP**: "`docs/product/requirements.md` has not been created yet. Run `/project-requirements` first. Use `--yolo` to bypass this gate."
 
-- **Optional**: Read `docs/_project-design.md` for component/UI requirements (only if real, not template)
-- **Optional**: Read `docs/_project-brief.md` for constraints (only if real, not template)
-- **Optional**: Read `docs/app/*/research.md` or `docs/.output/research/**` for technical research findings
+- **Optional**: Read `docs/design/spec.md` for component/UI requirements (only if real, not template)
+- **Optional**: Read `docs/product/brief.md` for constraints (only if real, not template)
+- **Optional**: Read `docs/modules/*/research.md` or `docs/.output/findings/research/**` for technical research findings
 
 ### 2. Check for Existing Output (main agent)
 
-- If `docs/_project-architecture.md` exists → ask: **update** or **replace**?
+- If `docs/architecture/overview.md` exists → ask: **update** or **replace**?
 
 ### 3. Detect Mode (main agent)
 
@@ -69,10 +71,12 @@ Synthesize a context brief from upstream docs:
 
 ### 5. Delegate to Agent
 
+**Runtime and verification.** In Codex, run each `.claude/core/` command in this workflow (such as `telemetry-log.js`) as `.codex/core/` with the same arguments, per `.agents/adapters/codex/execution.md`. The architecture names the application's own build, test and security commands; in an adopter they are never the Domdhi.Agents toolkit suite, and in Domdhi.Agents itself they are the toolkit's Node build and Vitest suite. This workflow's evidence is `docs/architecture/overview.md` passing the real-document check (no `<!-- @@template -->` first line) and the Step 6 Required Sections Checklist, plus the hash of a commit that stages only the files this command wrote; discovery alone (an installed skill, a listed command or a loaded file) never proves this workflow ran.
+
 Use the Task tool with `subagent_type: "architect"` to generate the architecture document.
 
 **Task prompt must include**:
-1. Project name and what to produce (`docs/_project-architecture.md`)
+1. Project name and what to produce (`docs/architecture/overview.md`)
 2. Summary of upstream context (PRD modules, NFRs, data model, security requirements, API surface)
 3. User's tech decisions from interview (if any)
 4. Mode (Context/Interview/Reverse-Engineering)
@@ -81,18 +85,18 @@ The `architect` agent auto-loads the `architecture` skill via frontmatter — do
 
 ### 6. Validate (main agent)
 
-After the agent completes, read `docs/_project-architecture.md` and validate against the `architecture` skill's **Required Sections Checklist**. If any section is missing, delegate back to the agent to fill it.
+After the agent completes, read `docs/architecture/overview.md` and validate against the `architecture` skill's **Required Sections Checklist**. If any section is missing, delegate back to the agent to fill it.
 
 ### 7. Commit (main agent)
 
-Follow the **Post-Command Commit Convention** in CLAUDE.md. Stage all files created or modified by this command and commit with a descriptive message.
+Follow the **Post-Command Commit Convention** in `.agents/startup-reference.md`. Stage all files created or modified by this command and commit with a descriptive message.
 
 ### 8. Report (main agent)
 
 ```markdown
 ## Architecture Complete
 
-**Output**: docs/_project-architecture.md
+**Output**: docs/architecture/overview.md
 **Architecture style**: {monolith/microservices/etc.}
 **Tech stack**: {backend} + {frontend} + {database}
 **ADRs**: {count} decisions documented

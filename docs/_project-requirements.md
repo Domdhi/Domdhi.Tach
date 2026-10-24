@@ -204,7 +204,7 @@ The intended distribution target is the **Chrome Web Store (planned — not yet 
 
 ### Module: YouTube Content Cleanup
 
-> This module is the clearest expression of the scope expansion: it takes the product from "control video speed anywhere" into "make YouTube a better place to watch." Both features are **toggleable and default OFF** — Tach must not silently alter a site's appearance.
+> This module is the clearest expression of the scope expansion: it takes the product from "control video speed anywhere" into "make YouTube a better place to watch." Every feature is **toggleable**. FR-14/FR-15 shipped default OFF; FR-21..FR-25 default ON by owner request (v1.1.0 — see CHANGELOG), each switchable off in Options.
 
 #### FR-14: Hide YouTube Shorts
 - **Priority**: Should Have
@@ -222,7 +222,7 @@ The intended distribution target is the **Chrome Web Store (planned — not yet 
 - **Priority**: Should Have
 - **Status**: Planned
 - **Persona**: Alex
-- **Description**: Provide a toggle in the options page that hides the comments section on YouTube watch pages. Default OFF.
+- **Description**: Provide a toggle in the options page that hides the comments section on YouTube watch pages. Default OFF. Hides the comments thread ONLY — the live/premiere chat panel is a separate toggle (FR-23) since v1.1.0.
 - **Acceptance Criteria**:
   - Given the "Hide Comments" toggle is OFF (default), When the user opens a watch page, Then comments display normally.
   - Given the toggle is ON, When the user opens a watch page, Then the comments section is hidden.
@@ -286,12 +286,12 @@ The intended distribution target is the **Chrome Web Store (planned — not yet 
 
 #### FR-21: Auto-Skip YouTube Ads
 - **Priority**: Could Have
-- **Status**: Implemented (opt-in, default OFF)
-- **Description**: On YouTube, optionally auto-skip ads by seeking the ad `<video>` to its end — the only mechanism that works (maxing `playbackRate` is reset and the skip button rejects synthetic clicks; see the 2026-06-06 feasibility spike). Default OFF given Web Store caution.
+- **Status**: Implemented (default ON since v1.1.0; user-toggleable)
+- **Description**: On YouTube, optionally auto-skip ads by seeking the ad `<video>` to its end — the only mechanism that works (maxing `playbackRate` is reset and the skip button rejects synthetic clicks; see the 2026-06-06 feasibility spike). Default ON (owner request); user-toggleable in options.
 - **Acceptance Criteria**:
   - Given `skipAds` ON and an ad is playing, When the ad `<video>` is detected, Then it is seeked to its end.
   - Given `skipAds` toggled OFF on a live page, Then ad polling halts immediately.
-- **Settings key**: `skipAds` (boolean, default false).
+- **Settings key**: `skipAds` (boolean, default true).
 
 #### FR-22: Hide Live/Premiere Chat in Fullscreen
 - **Priority**: Should Have
@@ -303,6 +303,35 @@ The intended distribution target is the **Chrome Web Store (planned — not yet 
 - **Settings key**: `hideChatFullscreen` (boolean, default true).
 
 ---
+
+
+#### FR-23: Hide Live/Premiere Chat (All Modes)
+- **Priority**: Should Have
+- **Status**: Implemented (v1.1.0, default ON)
+- **Description**: Hide the live/premiere chat panel (`ytd-live-chat-frame`, `#chat-container`, `iframe#chatframe`) in every mode, independent of the comments toggle (FR-15) so comments can show while chat stays hidden. Uses `display:none !important` so YouTube's own styles cannot re-show it. Complements FR-22, which only affects fullscreen.
+- **Acceptance Criteria**:
+  - Given `hideLiveChat` ON and a live stream or premiere, When the watch page loads, Then the chat panel is hidden and comments are unaffected.
+  - Given `hideLiveChat` OFF, Then chat displays normally.
+  - Given the toggle changes on a live page, Then the change applies without a reload.
+- **Settings key**: `hideLiveChat` (boolean, default true).
+
+#### FR-24: Hide Games & Extras
+- **Priority**: Could Have
+- **Status**: Implemented (v1.1.0, default ON)
+- **Description**: Hide YouTube "extras": Playables (games) shelves, sidebar entries and tiles (matched by the stable `/playables` link path), community-post shelves and inline posts, and shelves whose title exactly matches "Breaking news", "Playables" or "Latest YouTube posts". Title matching reads the shelf's own title element, so a video merely named like a shelf is never hidden. Selector coverage for Playables is unverified against live pages (none were shown on the test account).
+- **Acceptance Criteria**:
+  - Given `hideExtras` ON, When a matching shelf/entry/post renders (including after SPA navigation), Then it is hidden and neighbouring videos are not.
+  - Given `hideExtras` OFF or toggled OFF live, Then everything this feature hid is restored.
+- **Settings key**: `hideExtras` (boolean, default true).
+
+#### FR-25: Hide Sponsored Tiles
+- **Priority**: Could Have
+- **Status**: Implemented (v1.1.0, default ON)
+- **Description**: Hide sponsored ad tiles rendered into feeds, search results and the watch sidebar (`ytd-ad-slot-renderer`, and the feed item wrapping it). Distinct from FR-21, which handles video ads inside the player. The feed selector `ytd-rich-item-renderer:has(ytd-ad-slot-renderer)` was verified against the live home feed (matched exactly the sponsored tiles).
+- **Acceptance Criteria**:
+  - Given `hideFeedAds` ON, When the home feed renders, Then sponsored tiles are hidden and regular video tiles are not.
+  - Given `hideFeedAds` OFF, Then sponsored tiles display normally.
+- **Settings key**: `hideFeedAds` (boolean, default true).
 
 ## Non-Functional Requirements
 
@@ -447,7 +476,7 @@ The product is migrating from a **single-value** model to a **small settings obj
 | UserSettings | Persisted user preferences (singleton per Chrome profile) | `defaultPlaybackSpeed` (number, 0.1–4.0) |
 | PerSitePreset | A speed override for one domain (FR-11) | domain (key) → speed (number); collectively the `perSiteSpeeds` map |
 | PresetConfig | The set of preset buttons shown in the popup (FR-12) | `customPresets` (array of numbers) |
-| YouTubeToggles | Cleanup feature switches (FR-14/15) | `hideShorts` (bool, default false), `hideComments` (bool, default false) |
+| YouTubeToggles | Cleanup feature switches (FR-14/15) | `hideShorts` (bool, default false), `hideComments` (bool, default false), `hideLiveChat` (bool, default true), `hideExtras` (bool, default true), `hideFeedAds` (bool, default true) |
 | ThemePreference | Popup appearance (FR-13) | `theme` ("light" / "dark" / "auto") |
 
 ### Storage Schema (Conceptual — `chrome.storage.sync`)
@@ -459,8 +488,11 @@ The product is migrating from a **single-value** model to a **small settings obj
 | `customPresets` | array | exactly 6 numbers within 0.01–4.0 | `[0.5,0.75,1.0,1.25,1.5,2.0]` | FR-12 (Implemented) |
 | `hideShorts` | boolean | true/false | false | FR-14 (Implemented) |
 | `hideComments` | boolean | true/false | false | FR-15 (Implemented) |
+| `hideLiveChat` | boolean | true/false | true | FR-15 (Implemented) |
+| `hideExtras` | boolean | true/false | true | FR-15 (Implemented) |
+| `hideFeedAds` | boolean | true/false | true | FR-15 (Implemented) |
 | `hideChatFullscreen` | boolean | true/false | true | FR-22 (Implemented) |
-| `skipAds` | boolean | true/false | false | FR-21 (Implemented) |
+| `skipAds` | boolean | true/false | true | FR-21 (Implemented) |
 | `theme` | string | light/dark/auto | auto | FR-13 (Implemented) |
 | `accentColor` | string | 6-digit hex | `#9D4EDD` | FR-20 (Implemented) |
 

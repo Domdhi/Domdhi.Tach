@@ -3,9 +3,11 @@ description: Audit code for OWASP compliance, vulnerabilities, secrets, and thre
 argument-hint: [file path, PR number, git diff range, or directory]
 ---
 
+<!-- Generated from .agents/skills/review-security/references/workflow.md; edit the canonical source, then run node .claude/core/render-shared-agents.js. -->
+
 # Security Review
 
-Security audit of code for vulnerabilities, OWASP compliance, secret exposure, and attack surface analysis. Uses the `security-auditor` agent. The auditor writes its findings to `docs/.output/reviews/` and never modifies the system under audit.
+Security audit of code for vulnerabilities, OWASP compliance, secret exposure, and attack surface analysis. Uses the `security-auditor` agent. The auditor writes its findings to `docs/.output/findings/reviews/` and never modifies the system under audit.
 
 ## Telemetry (run first)
 
@@ -44,8 +46,8 @@ INPUT: $ARGUMENTS
 
 ### 2. Gather Security Context (main agent)
 
-- Read `docs/_project-architecture.md` — Auth & Authorization section, Security ADRs, API design
-- Read `docs/_project-requirements.md` — Security requirements, NFRs related to security
+- Read `docs/architecture/overview.md` — Auth & Authorization section, Security ADRs, API design
+- Read `docs/product/requirements.md` — Security requirements, NFRs related to security
 - Search for security-relevant files:
   ```
   Glob: *.env*, .env.example, docker-compose*, Dockerfile*
@@ -57,6 +59,8 @@ INPUT: $ARGUMENTS
   node .claude/core/memory-manager.js search "security"
   node .claude/core/memory-manager.js list constraints
   ```
+
+**Runtime and verification.** This audit changes no application code and runs no build or test gate; any recommended remediation is verified by the application's own `gate.js` commands in an adopter, never the Domdhi.Agents toolkit suite (including after agent-file edits), and by the toolkit's Node build and Vitest suite only in Domdhi.Agents itself. In Codex, run each `.claude/core/` command in this workflow (telemetry, memory search, `commit.js`) as `.codex/core/` with the same arguments and dispatch the auditor as `.agents/adapters/codex/execution.md` describes. Note that discovery alone (an installed skill, a listed command or a loaded file) never proves this audit ran: claim completion only from the Step 4 audit written to `docs/.output/findings/reviews/` with redacted secrets and its Step 5 commit hash.
 
 ### 3. Delegate to Agent (main agent → security-auditor)
 
@@ -75,19 +79,20 @@ Use the Task tool with `subagent_type: "security-auditor"` to perform the audit.
 10. Instruction to think in attack chains — how LOW findings combine into higher-severity paths
 11. Instruction to classify findings by severity: CRITICAL > HIGH > MEDIUM > LOW
 12. Instruction to include for each finding: severity, OWASP category, proof conditions, attack scenario, remediation
+13. The verified project constraints and architecture conventions loaded in Step 2, with their source paths (or "none" when absent)
 
-> **MANDATORY — redact secrets in the report.** When a finding quotes a discovered credential, NEVER write the full value into the audit file. Redact to a non-recoverable, non-matching form: show at most a short identifying prefix then mask the rest, e.g. `CG-abc…[REDACTED]` or `sk-ant-…[REDACTED]`. Report the **location** (`file:line`) precisely so it can be found and rotated — the location, not the value, is what makes the finding actionable. This is both why the report stays safe to commit and why the commit-time secret scan won't block it. (A non-redacted full key written into `docs/.output/reviews/` is exactly how a live key once leaked — the output dir is no longer a scanner blind spot.)
+> **MANDATORY — redact secrets in the report.** When a finding quotes a discovered credential, NEVER write the full value into the audit file. Redact to a non-recoverable, non-matching form: show at most a short identifying prefix then mask the rest, e.g. `CG-abc…[REDACTED]` or `sk-ant-…[REDACTED]`. Report the **location** (`file:line`) precisely so it can be found and rotated — the location, not the value, is what makes the finding actionable. This is both why the report stays safe to commit and why the commit-time secret scan won't block it. (A non-redacted full key written into `docs/.output/findings/reviews/` is exactly how a live key once leaked — the output dir is no longer a scanner blind spot.)
 
 ### 4. Persist Output (main agent)
 
 Write the full audit to disk before reporting:
 
 ```bash
-mkdir -p docs/.output/reviews
+mkdir -p docs/.output/findings/reviews
 ```
 
 Write the complete audit output (OWASP assessment + all findings) to:
-`docs/.output/reviews/{YYMMDD-HHMM}-security-audit.md`
+`docs/.output/findings/reviews/{YYMMDD-HHMM}-security-audit.md`
 
 File format:
 ```markdown
@@ -103,7 +108,7 @@ File format:
 
 Stage and commit the audit output file:
 
-Write the commit message to `docs/.output/.commit-msg` (Write tool — no shell escaping):
+Write the commit message to `docs/.output/.state/.commit-msg` (Write tool — no shell escaping):
 
 ```
 docs: /review:security — {N} findings ({critical}C/{high}H/{medium}M/{low}L)
@@ -112,7 +117,7 @@ docs: /review:security — {N} findings ({critical}C/{high}H/{medium}M/{low}L)
 Then run:
 
 ```bash
-git add docs/.output/reviews/{YYMMDD-HHMM}-security-audit.md
+git add docs/.output/findings/reviews/{YYMMDD-HHMM}-security-audit.md
 node .claude/core/commit.js
 ```
 
@@ -125,7 +130,7 @@ Read the agent's output and present the final report, including the output file 
 
 **Scope**: {files/PR/diff reviewed}
 **Findings**: {critical} critical, {high} high, {medium} medium, {low} low
-**Output**: `docs/.output/reviews/{YYMMDD-HHMM}-security-audit.md`
+**Output**: `docs/.output/findings/reviews/{YYMMDD-HHMM}-security-audit.md`
 
 ### Threat Model
 {Attack surface summary — endpoints, inputs, auth boundaries, third-party integrations identified by the auditor}

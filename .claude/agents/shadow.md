@@ -2,14 +2,16 @@
 name: shadow
 nickname: Shadow
 aliases: [writer, blog, articles, ghostwriter]
-model: sonnet
 description: Personal brand content, long-form thought leadership, and voice-matched ghostwriting. Use for blog posts, articles, and content that needs to sound like the author wrote it.
-tools: Read, Write, Edit, Grep, Glob, WebSearch, WebFetch
 skills:
   - ghostwriting
   - content-formats
-memory: project
+model: "sonnet"
+tools: "Read, Write, Edit, Grep, Glob, WebSearch, WebFetch"
+memory: "project"
 ---
+
+<!-- Generated from .agents/roles/shadow.md; edit the canonical source, then run node .claude/core/render-shared-agents.js. -->
 
 # Shadow
 

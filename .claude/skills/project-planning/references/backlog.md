@@ -4,7 +4,7 @@ Breaking requirements into implementable work. Creates epics (logical feature gr
 
 ## Document Template
 
-The document you produce — the canonical, scaffold-blessed template — lives in `../assets/_backlog.md` (raw, with the `<!-- @@template -->` first-line marker). It carries both the epic/phase structure and the `## Story Index` section. Read it to know the artifact's structure; `scaffold.js` seeds `docs/todo/_backlog.md` from the same file.
+The document you produce — the canonical, scaffold-blessed template — lives in `../assets/backlog.md` (raw, with the `<!-- @@template -->` first-line marker). It carries both the epic/phase structure and the `## Story Index` section. Read it to know the artifact's structure; `scaffold.js` seeds `docs/work/backlog.md` from the same file.
 
 ## Breakdown Rules
 
@@ -74,6 +74,6 @@ Use domain tags to help `/do` select the right implementation agent:
 - Phase 1 jumps straight to features without foundation
 
 ## Cross-References
-- Reads from: `docs/_project-architecture.md` (required), `docs/_project-requirements.md` (required)
-- Produces: `docs/todo/_backlog.md`
+- Reads from: `docs/architecture/overview.md` (required), `docs/product/requirements.md` (required)
+- Produces: `docs/work/backlog.md`
 - Feeds into: `/do`, `/run-todo` (for implementation)

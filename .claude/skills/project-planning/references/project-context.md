@@ -1,10 +1,10 @@
 # Project Context
 
-Defines the format for `docs/_project-context.md` — the single-file quick reference that `/prime` loads first in every session.
+Defines the format for `docs/product/context.md` — the single-file quick reference that `/prime` loads first in every session.
 
 ## Document Template
 
-The document you produce — the canonical, scaffold-blessed template — lives in `../assets/_project-context.md` (raw, with the `<!-- @@template -->` first-line marker). Read it to know the artifact's structure; `scaffold.js` seeds `docs/_project-context.md` from the same file.
+The document you produce — the canonical, scaffold-blessed template — lives in `../assets/context.md` (raw, with the `<!-- @@template -->` first-line marker). Read it to know the artifact's structure; `scaffold.js` seeds `docs/product/context.md` from the same file.
 
 ## Maintenance Rules
 
@@ -15,13 +15,13 @@ The document you produce — the canonical, scaffold-blessed template — lives 
 
 ## Quality Criteria
 
-### Good _project-context.md
+### Good product/context.md
 - Can understand the project in 30 seconds by reading this file
 - All doc links are valid
 - Current state reflects actual progress
-- Tech stack summary matches _project-architecture.md
+- Tech stack summary matches architecture/overview.md
 
-### Bad _project-context.md
+### Bad product/context.md
 - Outdated state (shows stories as pending that are done)
 - Broken doc links
 - Missing architecture summary

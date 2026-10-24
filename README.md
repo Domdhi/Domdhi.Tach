@@ -22,8 +22,10 @@ optional YouTube cleanup. Free, private, and open source.
 - **Per-site memory** — remember a different speed per domain (YouTube vs. your
   lecture site); it sticks for that site.
 - **Keyboard shortcuts** — speed up / slow down / reset without opening the popup.
-- **YouTube cleanup (optional)** — hide Shorts, hide comments/live chat, keep chat
-  out of fullscreen, skip ads (by seeking past them), and copy the transcript.
+- **YouTube cleanup** — hide Shorts, comments, live chat, games/extras and sponsored
+  tiles, keep chat out of fullscreen, skip video ads (by seeking past them), and copy
+  the transcript. Every item is a toggle in settings; see the [changelog](CHANGELOG.md)
+  for which start on.
 - **Themeable** — light / dark / auto, plus a custom accent color.
 - **Private by design** — no tracking, no analytics, no external network requests.
 

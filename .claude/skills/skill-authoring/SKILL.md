@@ -1,6 +1,6 @@
 ---
 name: skill-authoring
-description: "Use WHEN creating a new SKILL.md, editing an existing skill, or verifying a skill works before deployment — applies TDD to process documentation: write a failing baseline test before writing the skill"
+description: "Use WHEN creating a new SKILL.md, editing an existing skill, or verifying one before deployment — this toolkit's skill doctrine and conventions: structure, the CSO description rules, progressive disclosure, archetypes, and the evidence-driven authoring standard. Triggers: create skill, new skill, edit skill, skill conventions, skill structure, SKILL.md, progressive disclosure"
 metadata:
   version: 1.0.0
   author: Domdhi.Agents
@@ -8,6 +8,8 @@ metadata:
 user-invocable: false
 allowed-tools: Read
 ---
+
+<!-- Generated from .agents/skills/skill-authoring/SKILL.md; edit the canonical source, then run node .claude/core/render-shared-agents.js. -->
 
 # Skill Authoring
 
@@ -19,11 +21,11 @@ A skill — new or edited — is justified by **evidence of a real gap first, an
 
 **Core principle:** Never add skill content for a gap you can't point to, and never claim a skill helps without a differential that shows it. Evidence bookends the work — it does not have to come *before* you write a single word.
 
-> **Doctrine note (2026-06-06):** This replaces the old "**NO SKILL WITHOUT A FAILING TEST FIRST**" Iron Law. Pre-emptively pressure-testing a subagent *before* writing blocked machine-assisted skill generation (you can't run a baseline before a skill exists when you're synthesizing it from accumulated workflows) and is out of step with Anthropic's official `skill-creator`, where **tests come after the draft**. We keep the discipline (evidence + measured improvement) and drop the ordering that made it un-automatable. Full rationale: the ADR in `docs/.output/reviews/2026-06-06-adr-self-improving-skills.md`.
+> **Doctrine note (2026-06-06):** This replaces the old "**NO SKILL WITHOUT A FAILING TEST FIRST**" Iron Law. Pre-emptively pressure-testing a subagent *before* writing blocked machine-assisted skill generation (you can't run a baseline before a skill exists when you're synthesizing it from accumulated workflows) and is out of step with Anthropic's official `skill-creator`, where **tests come after the draft**. We keep the discipline (evidence + measured improvement) and drop the ordering that made it un-automatable. Full rationale: the ADR in `docs/architecture/decisions/0003-self-improving-skills.md`.
 
 **REQUIRED OPERATIONAL SKILL:** For the actual create→eval→improve→benchmark loop, the eval harness, the differential workspace layout, and description optimization, use **`skill-creator`**. This skill (`skill-authoring`) owns the *doctrine and conventions*; `skill-creator` owns the *mechanics*. The autonomous driver that mines this repo's signals into skill work is `/review:evolve-skills`.
 
-**Official guidance:** For Anthropic's official skill authoring best practices, see anthropic-best-practices.md.
+**Official guidance:** For Anthropic's official skill authoring best practices, see references/anthropic-best-practices.md.
 
 ## What is a Skill?
 
@@ -160,7 +162,7 @@ Concrete results
 
 **Format:** Start with "Use when..." to focus on triggering conditions
 
-**CRITICAL: Description = When to Use, NOT What the Skill Does**
+**Description = When to Use, NOT What the Skill Does**
 
 The description should ONLY describe triggering conditions. Do NOT summarize the skill's process or workflow in the description.
 
@@ -327,12 +329,12 @@ digraph when_flowchart {
 - Linear instructions → Numbered lists
 - Labels without semantic meaning (step1, helper2)
 
-See `.claude/skills/skill-authoring/graphviz-conventions.dot` for graphviz style rules.
+See `.agents/skills/skill-authoring/references/graphviz-conventions.dot` for graphviz style rules.
 
-**Visualizing for your human partner:** Use `render-graphs.js` in this directory to render a skill's flowcharts to SVG:
+**Visualizing for your human partner:** Use `scripts/render-graphs.js` (in the skill directory) to render a skill's flowcharts to SVG:
 ```bash
-./render-graphs.js ../some-skill           # Each diagram separately
-./render-graphs.js ../some-skill --combine # All diagrams in one SVG
+./scripts/render-graphs.js ../some-skill           # Each diagram separately
+./scripts/render-graphs.js ../some-skill --combine # All diagrams in one SVG
 ```
 
 ## Code Examples
@@ -389,20 +391,32 @@ When: Reference material too large for inline
 
 A skill in this toolkit is one of two shapes, and the `Overview / When to Use / Core Pattern` skeleton above is only one of them:
 
-- **Doc-producer** — owns a `docs/_project-*.md` template in `assets/` (wired into `scaffold.js`'s `SKILL_TEMPLATE_MANIFEST`) and validates the artifact it produces. Use a `Document Template (one-line pointer to assets/) / Required Sections Checklist / Quality Criteria / Interview Questions` skeleton. The `assets/` copy is the **scaffold source of record** — raw, with the `<!-- @@template -->` first line — so the skill and `scaffold.js` share one copy.
+- **Doc-producer** — owns a domain-doc template in `assets/` (e.g. `assets/spec.md` → `docs/design/spec.md`, `assets/backlog.md` → `docs/work/backlog.md`; wired into `scaffold.js`'s `SKILL_TEMPLATE_MANIFEST`) and validates the artifact it produces. Use a `Document Template (one-line pointer to assets/) / Required Sections Checklist / Quality Criteria / Interview Questions` skeleton. The `assets/` copy is the **scaffold source of record** — raw, with the `<!-- @@template -->` first line — so the skill and `scaffold.js` share one copy.
 - **Technique / prose** — encodes a method or voice, owns no scaffolded template. Use the `Overview / When to Use / Core Pattern` skeleton above. Examples: this skill, `systematic-debugging`, the design-technique skills (`design-taste-frontend`, `tailwind-css-patterns`), `ghostwriting`.
 
-When in doubt, ask "does this skill own a scaffolded `_project-*.md` template?" Yes → doc-producer; No → technique/prose.
+When in doubt, ask "does this skill own a scaffolded domain-doc template (in `assets/`, wired into `SKILL_TEMPLATE_MANIFEST`)?" Yes → doc-producer; No → technique/prose.
 
 **Where the planning-pipeline doc-producers live:** the planning *text* documents are consolidated into **one** skill, **`project-planning`** (brief, requirements, feature-ideas, epics/stories backlog, and the project-context quick-ref — each its own `references/` guide + `assets/` template). It is NOT one skill per document and there is NO `-writer` suffix convention. The genuine design disciplines — **`architecture`** and **`ux-design`** — stay self-contained (each owns its own template *and* its craft knowledge), because they carry real domain judgment beyond producing a doc.
 
 **Wiring checklist (new skill):**
-- [ ] Directory at `.claude/skills/{name}/SKILL.md`, `name:` field matches the directory
+- [ ] Directory at `.agents/skills/{name}/SKILL.md`, `name:` field matches the directory
 - [ ] At least one agent lists it in frontmatter `skills:` — OR it's loaded directly by a command via `Read` (both valid)
 - [ ] Content is domain knowledge, not orchestration (orchestration belongs in commands)
 - [ ] No duplication of content already in another skill
 - [ ] `description` leads with what-it-does + keeps the "Use WHEN…" triggering clause (CSO) — never a workflow summary
 - [ ] If a doc-producer: template lives in `assets/` (raw, marker on line 1) and is registered in `SKILL_TEMPLATE_MANIFEST`
+
+## Project additions to a template skill
+
+Skills are **Template zone** — `template-updater`/`fleet:sync` overwrites them in every
+adopter. Project-specific content added to a template skill MUST go inside one of two
+sentinel forms — never edit template-owned prose in place — or it's clobbered on the
+next sync: a whole-tail `<!-- @@project-additions -->` marker for a new section appended
+at EOF, or an anchored `<!-- @@project-additions:start -->`/`:end` fence for a bullet
+inserted INSIDE an existing section (the whole-tail marker can't protect that shape).
+Both are matched only outside documentation code fences. Full doctrine, examples, the
+`fleet:diverge` interaction, and a live bug this fixed:
+`references/project-additions-marker.md`.
 
 ## The Law (evidence bookends the work)
 

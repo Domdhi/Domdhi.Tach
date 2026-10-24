@@ -121,6 +121,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const perSiteList = document.getElementById('perSiteList');
     const hideShortsToggle = document.getElementById('hideShortsToggle');
     const hideCommentsToggle = document.getElementById('hideCommentsToggle');
+    const hideLiveChatToggle = document.getElementById('hideLiveChatToggle');
+    const hideExtrasToggle = document.getElementById('hideExtrasToggle');
+    const hideFeedAdsToggle = document.getElementById('hideFeedAdsToggle');
     const hideChatFullscreenToggle = document.getElementById('hideChatFullscreenToggle');
     const skipAdsToggle = document.getElementById('skipAdsToggle');
 
@@ -199,12 +202,12 @@ document.addEventListener('DOMContentLoaded', function() {
      * reflects the stored boolean, falling back to the key's OWN default in
      * DEFAULT_SETTINGS when nothing (or a non-boolean) is stored — so default-OFF
      * keys (hideShorts/hideComments) read off when unset, and the default-ON
-     * hideChatFullscreen reads on when unset. Persists its change immediately to
+     * hideLiveChat/hideExtras/hideFeedAds/hideChatFullscreen read on when unset. Persists its change immediately to
      * chrome.storage.sync; content-youtube.js honors the new value on the next
      * navigation (and live, via its storage.onChanged listener).
      *
      * @param {HTMLInputElement|null} toggle - the checkbox element
-     * @param {string} key - settings key ('hideShorts' | 'hideComments' | 'hideChatFullscreen' | 'skipAds')
+     * @param {string} key - settings key ('hideShorts' | 'hideComments' | 'hideLiveChat' | 'hideExtras' | 'hideFeedAds' | 'hideChatFullscreen' | 'skipAds')
      */
     function initYouTubeToggle(toggle, key) {
         if (!toggle) return;
@@ -219,6 +222,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     initYouTubeToggle(hideShortsToggle, 'hideShorts');
     initYouTubeToggle(hideCommentsToggle, 'hideComments');
+    initYouTubeToggle(hideLiveChatToggle, 'hideLiveChat');
+    initYouTubeToggle(hideExtrasToggle, 'hideExtras');
+    initYouTubeToggle(hideFeedAdsToggle, 'hideFeedAds');
     initYouTubeToggle(hideChatFullscreenToggle, 'hideChatFullscreen');
     initYouTubeToggle(skipAdsToggle, 'skipAds');
 

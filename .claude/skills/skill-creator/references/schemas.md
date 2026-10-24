@@ -27,10 +27,10 @@ Lives in the **target skill directory** (e.g. `.claude/skills/my-skill/evals/eva
     {
       "id": 1,
       "prompt": "Create a project brief for a SaaS analytics dashboard.",
-      "expected_output": "A _project-brief.md file in docs/ with sections for vision, users, and constraints.",
+      "expected_output": "A product/brief.md file in docs/ with sections for vision, users, and constraints.",
       "files": [],
       "assertions": [
-        "A _project-brief.md file exists in docs/",
+        "A product/brief.md file exists in docs/",
         "The brief contains a section about target users",
         "The brief does not contain placeholder text"
       ]
@@ -52,7 +52,7 @@ Lives in the **target skill directory** (e.g. `.claude/skills/my-skill/evals/eva
 
 ## 2. `eval_metadata.json`
 
-Written by `skill-eval.js run` once per eval, in the eval directory. Summarises the eval and carries the grader's per-assertion results for the viewer.
+Written by `skill-eval.js run` once per eval, in the eval directory. Summarizes the eval and carries the grader's per-assertion results for the viewer.
 
 ```json
 {
@@ -61,9 +61,9 @@ Written by `skill-eval.js run` once per eval, in the eval directory. Summarises 
   "prompt": "Create a project brief for a SaaS analytics dashboard.",
   "assertions": [
     {
-      "text": "A _project-brief.md file exists in docs/",
+      "text": "A product/brief.md file exists in docs/",
       "passed": true,
-      "evidence": "docs/_project-brief.md written at end of run"
+      "evidence": "docs/product/brief.md written at end of run"
     }
   ]
 }
@@ -89,9 +89,9 @@ Written by the **grader agent** into each run directory (e.g. `eval-0-project-br
   "eval_id": 0,
   "expectations": [
     {
-      "text": "A _project-brief.md file exists in docs/",
+      "text": "A product/brief.md file exists in docs/",
       "passed": true,
-      "evidence": "docs/_project-brief.md written at end of run"
+      "evidence": "docs/product/brief.md written at end of run"
     },
     {
       "text": "The brief contains a section about target users",
@@ -165,7 +165,7 @@ Produced by `node .claude/core/skill-eval.js aggregate` after all runs complete.
           "tokens": { "mean": 84852, "std": 1200, "min": 83000, "max": 86000, "n": 3 },
           "duration_ms": { "mean": 23332, "std": 500, "min": 22800, "max": 23900, "n": 3 },
           "assertions": {
-            "A _project-brief.md file exists in docs/": { "rate": 1.0, "std": 0, "n": 3 }
+            "A product/brief.md file exists in docs/": { "rate": 1.0, "std": 0, "n": 3 }
           }
         },
         "without_skill": {
@@ -174,7 +174,7 @@ Produced by `node .claude/core/skill-eval.js aggregate` after all runs complete.
           "tokens": { "mean": 90000, "std": 800, "min": 89000, "max": 91000, "n": 3 },
           "duration_ms": { "mean": 24100, "std": 300, "min": 23800, "max": 24400, "n": 3 },
           "assertions": {
-            "A _project-brief.md file exists in docs/": { "rate": 1.0, "std": 0, "n": 3 }
+            "A product/brief.md file exists in docs/": { "rate": 1.0, "std": 0, "n": 3 }
           }
         }
       },
@@ -185,7 +185,7 @@ Produced by `node .claude/core/skill-eval.js aggregate` after all runs complete.
       },
       "assertions": [
         {
-          "text": "A _project-brief.md file exists in docs/",
+          "text": "A product/brief.md file exists in docs/",
           "with_skill": 1.0,
           "baseline": 1.0,
           "discriminating": false,
@@ -265,8 +265,8 @@ Written by the **comparator agent** to the eval directory after a blind A/B comp
   },
   "decision_rationale": "A scored higher on completeness and organization. The user persona in A provides concrete grounding that B lacks entirely. The single-item constraints section in A is a weakness but doesn't offset the structural advantage.",
   "assertion_results": {
-    "A": { "A _project-brief.md file exists in docs/": true },
-    "B": { "A _project-brief.md file exists in docs/": true }
+    "A": { "A product/brief.md file exists in docs/": true },
+    "B": { "A product/brief.md file exists in docs/": true }
   }
 }
 ```
@@ -292,7 +292,7 @@ Two shapes depending on which analyzer role ran.
   {
     "type": "non_discriminating",
     "evals": [0],
-    "assertions": ["A _project-brief.md file exists in docs/"],
+    "assertions": ["A product/brief.md file exists in docs/"],
     "observation": "This assertion passes at 100% in both configs across all 3 runs — it detects file creation, not quality."
   },
   {
@@ -368,10 +368,10 @@ Written by the eval viewer when a human reviewer leaves notes on a run.
 
 ## 9. Workspace Layout
 
-The harness writes to a date-scoped workspace under `docs/.output/skill-evolution/`. The eval definitions themselves live in the target skill directory.
+The harness writes to a date-scoped workspace under `docs/.output/evolution/skills/`. The eval definitions themselves live in the target skill directory.
 
 ```
-docs/.output/skill-evolution/{YYYY-MM-DD}/{skill}-workspace/
+docs/.output/evolution/skills/{YYYY-MM-DD}/{skill}-workspace/
   skill-snapshot/               # Present only when IMPROVING an existing skill
   │                             # Contains a verbatim copy of the old skill docs
   iteration-N/

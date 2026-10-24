@@ -45,8 +45,11 @@ describe('constants.js — shared values', () => {
             customPresets: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0],
             hideShorts: false,
             hideComments: false,
+            hideLiveChat: true,
+            hideExtras: true,
+            hideFeedAds: true,
             hideChatFullscreen: true,
-            skipAds: false,
+            skipAds: true,
             theme: 'auto',
             accentColor: '#9D4EDD',
         });

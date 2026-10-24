@@ -1,10 +1,12 @@
 ---
-description: "Generate or update _project-timeline.md with weekly commit history"
+description: "Generate or update work/timeline.md with weekly commit history"
 ---
+
+<!-- Generated from .agents/skills/review-timeline/references/workflow.md; edit the canonical source, then run node .claude/core/render-shared-agents.js. -->
 
 # Timeline
 
-Generate or update `docs/_project-timeline.md` — a weekly-grouped, daily-breakdown history of all project commits.
+Generate or update `docs/work/timeline.md` — a weekly-grouped, daily-breakdown history of all project commits.
 
 ## Telemetry (run first)
 
@@ -36,7 +38,7 @@ Report the script output to the user.
 
 After reporting, commit the updated timeline:
 
-Write the commit message to `docs/.output/.commit-msg` (Write tool — no shell escaping):
+Write the commit message to `docs/.output/.state/.commit-msg` (Write tool — no shell escaping):
 
 ```
 docs: /review:timeline — update project timeline
@@ -45,7 +47,7 @@ docs: /review:timeline — update project timeline
 Then run:
 
 ```bash
-git add docs/_project-timeline.md
+git add docs/work/timeline.md
 node .claude/core/commit.js
 ```
 
@@ -82,5 +84,5 @@ The script produces this structure:
 
 `/end` should check if the timeline is >7 days stale and suggest `/review:timeline update`:
 ```bash
-date -r docs/_project-timeline.md +%s 2>/dev/null
+date -r docs/work/timeline.md +%s 2>/dev/null
 ```

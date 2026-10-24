@@ -5,5 +5,5 @@
       "channel": "chrome"
     }
   },
-  "outputDir": "docs/.output/screenshots"
+  "outputDir": "docs/.output/.state/screenshots"
 }

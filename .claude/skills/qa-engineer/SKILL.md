@@ -9,9 +9,13 @@ user-invocable: false
 allowed-tools: Read Grep Glob Bash
 ---
 
+<!-- Generated from .agents/skills/qa-engineer/SKILL.md; edit the canonical source, then run node .claude/core/render-shared-agents.js. -->
+
 # QA Engineer
 
 Expert in test strategy and automated test generation. Produces tests that verify acceptance criteria from stories.
+
+**TDD first.** Before implementing anything, read `.claude/skills/qa-engineer/references/tdd-enforcement.md` — the Iron Law (no production code without a failing test first), Red-Green-Refactor, and the anti-patterns that let a test-after pass masquerade as test-first.
 
 ## Test Strategy Template
 
@@ -79,6 +83,8 @@ AC: "Given a valid email, When user submits login, Then redirect to dashboard"
 → Test: LoginFlow_EmptyPassword_ShowsValidation
 ```
 
+**Test authorship follows the repository's own rule.** Read the project's test-ownership rule before writing or delegating tests (for example, a workflow that requires the orchestrator to author tests from the AC before implementation is dispatched). Do not import another project's convention as universal. A deviation, such as a helper drafting tests that the owner reviews before production starts, is recorded as a deviation, not presented as compliance.
+
 ## Coverage Guidelines
 
 ### What to Test
@@ -112,6 +118,54 @@ AC: "Given a valid email, When user submits login, Then redirect to dashboard"
 - Testing implementation details (mock verification overuse)
 - Tests that always pass (no meaningful assertion)
 
+### Count & value assertions — never `toContain` for a quantity
+A test whose name promises a **count, total, number, or specific value** MUST assert it with `toBe` / `toEqual` / a numeric comparator (`toBeGreaterThan`, `toMatch` on a labeled value) — **never `toContain` (or substring presence) alone.** A bare substring check is a false-green: the literal appears in the output incidentally (dates, labels, IDs) and the test passes even when the real count is wrong or zero.
+
+```js
+// ✗ false-green: "1" appears in dates/labels regardless of the data
+expect(output).toContain('1');
+// ✗ false-green: the word "commit" is in every day-header
+expect(timeline).toContain('commit');
+// ✓ assert the labeled value
+expect(output).toContain('Concept articles:  1');
+expect(timeline).toMatch(/\(2 commits, \d+ files\)/);
+expect(report.total).toBe(2);
+```
+This exact anti-pattern slipped past dev agents twice in one test-authoring epic (once per wave) and was caught only in review — make it a write-time check, not a review-time catch.
+
+### Cross-item field uniqueness for multi-item mapping functions
+
+When a function maps a response into multiple output items sharing one input shape (an adapter, a normalizer, a batch transform), and the AC or downstream design treats one of the mapped fields as unique/dedup-relevant (a URL, an ID, a key), the test suite MUST assert uniqueness of that field **across items in the same multi-item test case** — not just "maps every item" and "maps correctly" per item in isolation.
+
+```js
+// ✗ insufficient: tests per-item mapping, never checks the two items differ where it matters
+expect(items[0].url).toBe(expectedUrl0);
+expect(items[1].url).toBe(expectedUrl1);
+
+// ✓ explicit cross-item uniqueness assertion
+expect(new Set(items.map((i) => i.url)).size).toBe(items.length);
+```
+
+Per-item assertions are blind to a mapper that emits the same shared value for every item (e.g. a source-level URL instead of a per-item one) — the bug silently defeats downstream dedup while every single-item test passes. Add this assertion whenever a story's AC documents a field as unique/dedup-relevant on a function that returns more than one item per call.
+
+### Concurrent-caller test for shared-key mutations
+
+When two callers can run concurrently (`Promise.all`, overlapping cron ticks, two requests racing) and both mutate state keyed by the **same** name/id — not one row each — a test that only ever invokes the function once per test cannot catch a check-then-act race. Assert the actual concurrent-call outcome, not just the single-caller happy path:
+
+```js
+// ✗ insufficient: only ever calls the function once — a TOCTOU race between two concurrent
+// callers sharing one key has no way to surface
+await trackFailureAndMaybeAlert('shared-key');
+expect(notify).toHaveBeenCalledTimes(1);
+
+// ✓ simulates the race: the second of two concurrent claims on the SAME key must lose
+tryClaimAlert.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+await Promise.all([trackFailureAndMaybeAlert('shared-key'), trackFailureAndMaybeAlert('shared-key')]);
+expect(notify).toHaveBeenCalledTimes(1); // not 2 — one caller must lose the claim
+```
+
+This is the shared-mutable-state generalization of the cross-item pattern above: whenever a shared key/resource can be reached by more than one concurrent caller, add a test that actually runs two calls concurrently and asserts only one wins — a single-call test cannot see a check-then-act race.
+
 ## Testing Conventions & Checkers
 
 Two patterns for the case where the thing under test is itself a *rule* (a cross-file convention) or a *checker* (a script that validates the tree):
@@ -120,21 +174,23 @@ Two patterns for the case where the thing under test is itself a *rule* (a cross
 
 - **Test a checker's LOGIC against fixtures, never against the live tree.** When a checker/linter script lands before the cleanup that makes the real tree pass (TDD-ordered: add-the-check, then fix-the-violations), its unit test must assert the checker's logic against *synthetic/fixture inputs*, not by scanning the real repo. A test that scans the live tree fails the instant the checker is introduced (the violations it's meant to catch still exist) and passes later for the wrong reason — it tests the tree's current state, not the checker. Fixture inputs make the test deterministic and independent of cleanup ordering.
 
+- **A security/convention scanner's fixtures must include EVASIVE shapes, not just gated/ungated (added 2026-07-16).** A text/regex scanner passing its happy-path fixtures can still be defeated non-adversarially: the guarded-pattern name appearing in a comment or string literal, chained/whitespace-split call syntax (`app\n.get(`), variable-held instead of literal arguments, method aliases (`app.on`/`app.all` vs `app.get`). For every scanner that gates the build, add one fixture per evasion class asserting a VIOLATION (or an explicit "cannot statically verify" error), plus a fixture proving the legitimate exemptions still pass. (Precedent: an adopter's authz scanner shipped with happy-path-only tests and a CRITICAL comment-mention false negative was found one day later.)
+
 ## Cross-References
-- Reads: `docs/_project-architecture.md` (test framework), `docs/todo/_backlog.md` (acceptance criteria)
+- Reads: `docs/architecture/overview.md` (test framework), `docs/work/backlog.md` (acceptance criteria)
 - Produces: Test files in appropriate test directories
 
 ---
 
 ## Project-Specific Test Patterns
 
-**Domdhi.Agents-specific.** Downstream projects should replace this block via /specialize --fix after their own architecture docs are complete.
+**Domdhi.Agents toolkit-specific.** Downstream projects should replace this block via /specialize --fix after their own architecture docs are complete.
 
-**Framework:** Vitest 2.1.9 at repo root. Config: `vitest.config.mjs` (ESM — `.mjs` is required because Vite's CJS Node API is deprecated).
+**Framework:** Vitest 5 (see `package.json`) at repo root. Config: `vitest.config.mjs` (ESM — `.mjs` is required because Vite's CJS Node API is deprecated).
 
 ### ESM Import Pattern (REQUIRED for every test file)
 
-`package.json` is `"type": "commonjs"` — all `.claude/core/*.js` scripts use `require` / `module.exports`. Vitest 2.x **rejects** `require('vitest')` with:
+`package.json` is `"type": "commonjs"` — all `.claude/core/*.js` scripts use `require` / `module.exports`. Vitest's test API is ESM; a CommonJS test file calling `require('vitest')` was **rejected** with (observed when this pattern was established):
 
 ```
 Error: Vitest cannot be imported in a CommonJS module using require().
@@ -161,17 +217,18 @@ describe('module-under-test', () => {
 });
 ```
 
-Canonical reference: `.claude/core/__tests__/_smoke.test.js`. Copy its shape for every new test.
+Canonical reference: `.agents/core/__tests__/_smoke.test.js`. Copy its shape for every new test.
 
 ### Test File Locations
 
-- Core scripts: `.claude/core/__tests__/{module}.test.js` (colocated)
-- Hooks: `.claude/hooks/__tests__/{hook}.test.js` (colocated)
-- Shared helpers: `.claude/core/__tests__/_helpers/` — underscore prefix, NOT matched by `*.test.js` glob, excluded from coverage
+- Core scripts: `.agents/core/__tests__/{module}.test.js` (colocated)
+- Hooks: `.agents/hooks/__tests__/{hook}.test.js` (colocated)
+- Runtime adapters: `.agents/adapters/{claude,codex}/__tests__/` — runtime-specific protocol and registration fixtures
+- Shared helpers: `.agents/core/__tests__/_helpers/` — underscore prefix, NOT matched by `*.test.js` glob, excluded from coverage
 
 ### Tmp-Dir Convention
 
-Tests that write files MUST scope paths under a per-test temp directory — never the repo root, user home, or any path the project itself writes to. Use the `tmp-dir` helper at `.claude/core/__tests__/_helpers/tmp-dir.js` (lands in TDD-2.1).
+Tests that write files MUST scope paths under a per-test temp directory — never the repo root, user home, or any path the project itself writes to. Use the `tmp-dir` helper at `.agents/core/__tests__/_helpers/tmp-dir.js` (lands in TDD-2.1).
 
 Production code under test resolves output paths via `process.env.CLAUDE_PROJECT_DIR`. The tmp-dir helper sets that env var to a freshly-created scratch directory and tears it down after the test. Do not hardcode paths — always route through the helper.
 
@@ -180,13 +237,13 @@ Production code under test resolves output paths via `process.env.CLAUDE_PROJECT
 ```bash
 npm test                                    # all suites
 npm run test:watch                          # watch mode
-npm run test:coverage                       # v8 coverage → docs/.output/telemetry/coverage/
+npm run test:coverage                       # v8 coverage → docs/.output/.state/telemetry/coverage/
 node .claude/core/gate.js test              # gate runner; auto-detects node stack, runs npm test
 ```
 
 ### Coverage Thresholds
 
-Enforced on `.claude/core/**/*.js` (see `vitest.config.mjs`):
+Enforced on the canonical implementation, `.agents/**/*.{js,cjs,mjs}` (see `vitest.config.mjs`). The generated `.claude`/`.codex` wrappers only forward to it, so they are not measured:
 
 | Metric | Threshold |
 |--------|-----------|
@@ -195,7 +252,7 @@ Enforced on `.claude/core/**/*.js` (see `vitest.config.mjs`):
 | Statements | 70% |
 | Branches | 60% |
 
-Exclusions: `**/__tests__/**`, `**/_helpers/**`, `.claude/hooks/**`, `docs/**`, `node_modules/**`.
+`.agents/core/*.js`, `.agents/core/_lib/**`, `.agents/hooks/**` and `.agents/adapters/**` must each meet the same floor on their own. Exclusions: `**/__tests__/**`, `**/_helpers/**`, `docs/**`, `node_modules/**`. Code a test runs only in a child process is not measured.
 
 ### CLI Guard for Testable Core Scripts
 
@@ -246,7 +303,7 @@ Lock the names BEFORE dispatch. Every agent reads the same table. No agent debat
 
 Source modules that use `const { execSync } = require('child_process')` (destructured at top-level) are **not** patchable by `vi.spyOn(childProcess, 'execSync')` — by the time the spy installs, the source already captured the original reference. Symptom: the spy is never hit; the test calls real `execSync`.
 
-**Fix**: pre-inject a proxy module into `require.cache` BEFORE the source is required. Use the canonical helper at `.claude/core/__tests__/_helpers/claude-mock.js`:
+**Fix**: pre-inject a proxy module into `require.cache` BEFORE the source is required. Use the canonical helper at `.agents/core/__tests__/_helpers/claude-mock.js`:
 
 ```js
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -285,7 +342,7 @@ Multi-method form (when the source destructures both `execSync` AND `spawn`):
 const { mockExecSync, mockSpawn, loader } = installExecSyncMock(vi, ['execSync', 'spawn']);
 ```
 
-When the source destructures a class (e.g. `const { DailyLog } = require('../core/daily-log')`) at top level, the same `require.cache` injection pattern applies — pre-inject a proxy class BEFORE the source is required. See `.claude/hooks/__tests__/pre-compaction-archive.test.js` for the canonical example.
+When the source destructures a class (e.g. `const { DailyLog } = require('../core/daily-log')`) at top level, the same `require.cache` injection pattern applies — pre-inject a proxy class BEFORE the source is required. See `.agents/hooks/__tests__/pre-compaction-archive.test.js` for the canonical example.
 
 For modules that don't destructure (e.g. `const childProcess = require('child_process'); ...; childProcess.execSync(...)`), normal `vi.spyOn(childProcess, 'execSync')` works fine — no helper needed.
 

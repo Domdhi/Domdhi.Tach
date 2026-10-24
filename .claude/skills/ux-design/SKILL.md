@@ -2,42 +2,48 @@
 name: ux-design
 description: "Use WHEN creating a UX specification, wireframes, design system, theme files, or HTML mock layout. Triggers: ux, wireframe, design system, color palette, typography, layout, accessibility, theme, mock"
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   author: Domdhi.Agents
   tags: [ux, wireframes, design-system, accessibility, themes, mock-layout]
 user-invocable: false
 allowed-tools: Read Write Grep Glob
 ---
 
+<!-- Generated from .agents/skills/ux-design/SKILL.md; edit the canonical source, then run node .claude/core/render-shared-agents.js. -->
+
 # UX Design
 
 Expert in UX specification documents. Produces a complete design artifact suite: design system spec, wireframes (ASCII), theme files (light/dark), interaction patterns, accessibility guidelines, and self-contained HTML mock layouts.
 
-**ASCII wireframes are the fast sketch; the HTML mock is the high-fidelity deliverable.** Use ASCII to think through layout in-doc. Produce a self-contained, browser-openable `_mock-layout.html` as the primary visual artifact — especially when the project's stack is HTML/CSS, where the mock is most of the real implementation. The mock covers either a full **application shell** OR a **focused single screen/component** (a popup, panel, modal, card): match its scope to the request, and don't force the full app grid onto a single-component mock. Skipping the full multi-file design suite for a small surface (a redesign, one popup) does **not** mean skipping the HTML mock — a targeted single-component mock is often the single highest-value artifact for that work.
+**ASCII wireframes are the fast sketch; the HTML mock is the high-fidelity deliverable.** Use ASCII to think through layout in-doc. Produce a self-contained, browser-openable `mock.html` as the primary visual artifact — especially when the project's stack is HTML/CSS, where the mock is most of the real implementation. The mock covers either a full **application shell** OR a **focused single screen/component** (a popup, panel, modal, card): match its scope to the request, and don't force the full app grid onto a single-component mock. Skipping the full multi-file design suite for a small surface (a redesign, one popup) does **not** mean skipping the HTML mock — a targeted single-component mock is often the single highest-value artifact for that work.
 
 ## Output Files
 
 | File | Description |
 |------|-------------|
-| `docs/_project-design.md` | Design system, principles, component inventory, interaction patterns |
-| `docs/design/_wireframes.md` | ASCII wireframes for all key pages |
-| `docs/design/_design.light.md` | Light theme color palette and semantic tokens |
-| `docs/design/_design.dark.md` | Dark theme color palette and semantic tokens |
-| `docs/design/_mock-layout.html` | Self-contained HTML mock — full application shell, or a focused single screen/component (popup, panel, modal) |
+| `docs/design/spec.md` | Design system, principles, component inventory, interaction patterns |
+| `docs/design/wireframes.md` | ASCII wireframes for all key pages |
+| `docs/design/theme.light.md` | Light theme color palette and semantic tokens |
+| `docs/design/theme.dark.md` | Dark theme color palette and semantic tokens |
+| `docs/design/mock.html` | Self-contained HTML mock — full application shell, or a focused single screen/component (popup, panel, modal) |
 
 **Templates** (load only the one you're producing — `assets/`, per the Agent Skills spec):
 
 | Producing… | Load |
 |------------|------|
-| UX spec (`_project-design.md`) | `assets/_project-design.md` |
-| Wireframes (`_wireframes.md`) | `assets/_wireframes.md` |
-| Light theme (`_design.light.md`) | `assets/_design.light.md` |
-| Dark theme (`_design.dark.md`) | `assets/_design.dark.md` |
-| Mock layout (`_mock-layout.html`) | `assets/_mock-layout.html` |
+| UX spec (`design/spec.md`) | `assets/spec.md` |
+| Wireframes (`wireframes.md`) | `assets/wireframes.md` |
+| Light theme (`theme.light.md`) | `assets/theme.light.md` |
+| Dark theme (`theme.dark.md`) | `assets/theme.dark.md` |
+| Mock layout (`mock.html`) | `assets/mock.html` |
+
+## Project stack and brand
+
+Read the project’s own `brand-guidelines` before choosing colors, typography or logos. Unfilled scaffold placeholders are not approved brand values. Keep the existing component library and styling system; verify component APIs and token names against the installed versions before using them.
 
 ## Required Sections Checklist
 
-### UX Spec (`_project-design.md`)
+### UX Spec (`design/spec.md`)
 - [ ] Design Philosophy (clear, opinionated principles)
 - [ ] Typography scale (H1-Body minimum)
 - [ ] Layout System (shell structure + grid + spacing)
@@ -46,14 +52,14 @@ Expert in UX specification documents. Produces a complete design artifact suite:
 - [ ] Responsive Behavior (breakpoints with specific changes)
 - [ ] Accessibility requirements (WCAG level, contrast, keyboard)
 
-### Wireframes (`_wireframes.md`)
+### Wireframes (`wireframes.md`)
 - [ ] Page inventory table
 - [ ] Navigation flow diagram
 - [ ] At least 2 page wireframes (ASCII art)
 - [ ] Desktop AND mobile layout for primary pages
 - [ ] Purpose, entry points, and key interactions per page
 
-### Light Theme (`_design.light.md`)
+### Light Theme (`theme.light.md`)
 - [ ] Brand colors defined
 - [ ] Semantic color tokens (primary, success, warning, danger)
 - [ ] Background color hierarchy
@@ -61,13 +67,13 @@ Expert in UX specification documents. Produces a complete design artifact suite:
 - [ ] Component state mapping
 - [ ] WCAG contrast compliance table
 
-### Dark Theme (`_design.dark.md`)
+### Dark Theme (`theme.dark.md`)
 - [ ] All light theme tokens mapped to dark equivalents
 - [ ] Surface elevation strategy (lighter surfaces, not shadows)
 - [ ] WCAG contrast compliance verified for dark backgrounds
 - [ ] Design notes explaining dark-mode principles
 
-### Mock Layout (`_mock-layout.html`)
+### Mock Layout (`mock.html`)
 - [ ] Self-contained (inline CSS, no external dependencies)
 - [ ] Uses CSS custom properties matching theme tokens
 - [ ] Scope matches the request: full **app shell** matches UX spec layout, OR a **single screen/component** (popup, panel, modal, card) is mocked on its own — sized to the real surface, not wrapped in an unrelated app grid
@@ -97,15 +103,15 @@ Expert in UX specification documents. Produces a complete design artifact suite:
 ## Interview Questions
 
 1. "What's the overall feel? (professional, playful, minimal, data-dense)"
-2. "Any brand colors or existing design language?"
+2. "What approved brand values and existing design language should this use?"
 3. "What devices/screen sizes matter most?"
 4. "Any accessibility requirements? (WCAG level, audience needs)"
 5. "What's the most important page/view in the app?"
 6. "Any design inspirations or anti-inspirations?"
 7. "Light mode, dark mode, or both?"
-8. "What UI component library are you using? (or building custom)"
+8. "What UI component library and version does the app already use? (or building custom)"
 
 ## Cross-References
-- Reads from: `docs/_project-requirements.md` (required)
-- Produces: `docs/_project-design.md`, `docs/design/_wireframes.md`, `docs/design/_design.light.md`, `docs/design/_design.dark.md`, `docs/design/_mock-layout.html`
-- Feeds into: `docs/_project-architecture.md` (component decisions)
+- Reads from: `docs/product/requirements.md` (required)
+- Produces: `docs/design/spec.md`, `docs/design/wireframes.md`, `docs/design/theme.light.md`, `docs/design/theme.dark.md`, `docs/design/mock.html`
+- Feeds into: `docs/architecture/overview.md` (component decisions)

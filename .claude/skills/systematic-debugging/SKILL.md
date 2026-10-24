@@ -9,6 +9,8 @@ user-invocable: false
 allowed-tools: Read Bash Grep Glob
 ---
 
+<!-- Generated from .agents/skills/systematic-debugging/SKILL.md; edit the canonical source, then run node .claude/core/render-shared-agents.js. -->
+
 # Systematic Debugging
 
 ## Overview
@@ -117,7 +119,7 @@ You MUST complete each phase before proceeding to the next.
 
    **WHEN error is deep in call stack:**
 
-   See `root-cause-tracing.md` in this directory for the complete backward tracing technique.
+   See `references/root-cause-tracing.md` for the complete backward tracing technique.
 
    **Quick version:**
    - Where does bad value originate?
@@ -306,14 +308,16 @@ If systematic investigation reveals issue is truly environmental, timing-depende
 
 ## Supporting Techniques
 
-These techniques are part of systematic debugging and available in this directory:
+These techniques are part of systematic debugging and available in `references/`:
 
-- **`root-cause-tracing.md`** - Trace bugs backward through call stack to find original trigger
-- **`defense-in-depth.md`** - Add validation at multiple layers after finding root cause
-- **`condition-based-waiting.md`** - Replace arbitrary timeouts with condition polling
+- **`references/root-cause-tracing.md`** - Trace bugs backward through call stack to find original trigger
+- **`references/defense-in-depth.md`** - Add validation at multiple layers after finding root cause
+- **`references/condition-based-waiting.md`** - Replace arbitrary timeouts with condition polling
+
+**Investigation ends at a fix verified green — not at a root-cause writeup.** Finding the root cause is half the job; resolving it is the other half. Once Phase 1 confirms the cause and the fix is obvious and worth making, implement it in this same pass (Phase 4) and re-run the verification — don't hand back a diagnosis that ends in "want me to fix it?" That's this project's operating standard: **resolve it or don't report it.** The only legitimate stop is a genuine fork (the 3-strike architectural question above, mutually-exclusive approaches, an irreversible action) — a confirmed bug with an obvious fix is never a fork.
 
 **Related skills:**
-- **verification-before-completion** — Verify fix worked before claiming success (`superpowers:*` refs are from an external library and are not live in this repo)
+- **verification-before-completion** — Verify fix worked before claiming success, and the canonical home of the "Resolve, Don't Defer" operating standard (`superpowers:*` refs are from an external library and are not live in this repo)
 
 ## Real-World Impact
 

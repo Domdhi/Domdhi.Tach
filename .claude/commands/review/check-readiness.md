@@ -2,6 +2,8 @@
 description: Validate that all planning docs are complete and consistent before implementation
 ---
 
+<!-- Generated from .agents/skills/review-check-readiness/references/workflow.md; edit the canonical source, then run node .claude/core/render-shared-agents.js. -->
+
 # Check Implementation Readiness
 
 Validate that all Phase 1-3 documentation is complete, consistent, and ready for implementation. Returns PASS, CONCERNS, or FAIL.
@@ -32,15 +34,15 @@ Check each document exists AND is not a template (no `<!-- @@template -->` marke
 
 | Document | Path | Required |
 |----------|------|----------|
-| Project Brief | `docs/_project-brief.md` | Recommended |
-| PRD | `docs/_project-requirements.md` | **Required** |
-| UX Spec | `docs/_project-design.md` | If UI project |
-| Wireframes | `docs/design/_wireframes.md` | If UI project |
-| Light Theme | `docs/design/_design.light.md` | If UI project |
-| Dark Theme | `docs/design/_design.dark.md` | If UI project |
-| Mock Layout | `docs/design/_mock-layout.html` | If UI project |
-| Architecture | `docs/_project-architecture.md` | **Required** |
-| Backlog | `docs/todo/_backlog.md` | **Required** |
+| Project Brief | `docs/product/brief.md` | Recommended |
+| PRD | `docs/product/requirements.md` | **Required** |
+| UX Spec | `docs/design/spec.md` | If UI project |
+| Wireframes | `docs/design/wireframes.md` | If UI project |
+| Light Theme | `docs/design/theme.light.md` | If UI project |
+| Dark Theme | `docs/design/theme.dark.md` | If UI project |
+| Mock Layout | `docs/design/mock.html` | If UI project |
+| Architecture | `docs/architecture/overview.md` | **Required** |
+| Backlog | `docs/work/backlog.md` | **Required** |
 
 **Template check**: Read the first line of each file. If it contains `<!-- @@template -->`, treat the file as non-existent (scaffolded but unfilled).
 
@@ -50,17 +52,29 @@ If any **required** doc is missing or is a template → **FAIL** immediately wit
 
 ### 1.5. Detect Epic File Overlap (main agent)
 
-After confirming `_backlog.md` exists, run the epic-overlap CLI:
+After confirming `backlog.md` exists, run the epic-overlap CLI:
 
 ```bash
-node .claude/core/_lib/epic-overlap.js docs/todo/_backlog.md
+node .claude/core/_lib/epic-overlap.js docs/work/backlog.md
 ```
 
 - Exit 0 (no **same-phase** overlaps) → proceed to step 2. Note: the CLI now exits 0 even when **cross-phase** overlaps exist — those are printed as *informational only*. Epics in different `## Phase` sections run in separate `/run-todo` waves and physically cannot collide, so they do **not** require acknowledgment (F6). Do not ask the user to enumerate them.
-- Exit 1 (**same-phase** overlaps found) → only same-phase pairs gate. Check whether `_backlog.md` contains a `## Acknowledged Overlaps` section listing every **same-phase** pair the CLI reported under "SAME-PHASE". If yes → proceed (intentional). If no → **FAIL** finding; record the same-phase pairs and ask the user to split the files or document them.
-- Exit 2 (CLI tool error — e.g., parser crash, malformed backlog the parser can't read) → report the error and halt the readiness check; do **not** treat as a gate decision. The overlap signal is unknown, not pass/fail. Surface the CLI's stderr in the verdict so the user can fix the underlying issue (typically a malformed `_backlog.md`) and re-run.
+- Exit 1 (**same-phase** overlaps found) → only same-phase pairs gate. Check whether `backlog.md` contains a `## Acknowledged Overlaps` section listing every **same-phase** pair the CLI reported under "SAME-PHASE". If yes → proceed (intentional). If no → **FAIL** finding; record the same-phase pairs and ask the user to split the files or document them.
+- Exit 2 (CLI tool error — e.g., parser crash, malformed backlog the parser can't read) → report the error and halt the readiness check; do **not** treat as a gate decision. The overlap signal is unknown, not pass/fail. Surface the CLI's stderr in the verdict so the user can fix the underlying issue (typically a malformed `backlog.md`) and re-run.
 
 This catches silent merge conflicts before `/run-todo` dispatches parallel agents into the same files — without the false-burden of hand-acknowledging cross-phase pairs that can't collide.
+
+### 1.6. Grade Planning Docs (main agent)
+
+Skip this step if Step 1 already FAILed (the PRD was missing or a template stub) — there is nothing real to grade. Otherwise run the deterministic doc-quality gate over the requirements doc. This catches placeholder tokens and structural gaps that the section-presence check in step 2 does not — an FR with no acceptance criteria, an all-Must MoSCoW, an empty Success Criteria table, or a leftover `{placeholder}`/`TBD`:
+
+```bash
+node .claude/core/_lib/doc-drift.js grade docs/product/requirements.md
+```
+
+- Exit 0 → the doc is filled and structurally sound; proceed to step 2.
+- Exit 1 → the printed failures list what is unfilled. Record each as a readiness finding and **FAIL** the check, pointing the user back to `/create:project-requirements` to fill the gaps. Do not pass readiness on a doc that still carries placeholders.
+- A different non-zero exit (the script erroring, not a quality verdict — e.g. the file unreadable for an infrastructure reason) → warn and continue to step 2; do not block readiness on a tooling failure.
 
 ### 2. Delegate Completeness Checks (main agent → domain agents)
 
@@ -69,7 +83,7 @@ Launch domain agents **in parallel** via Task tool. Each agent auto-loads its sk
 **2a. Architecture validation** — `subagent_type: "architect"`
 
 Task prompt:
-1. Read `docs/_project-architecture.md`
+1. Read `docs/architecture/overview.md`
 2. Validate completeness against the architecture skill's quality checklist
 3. Return a structured report: section name, present (Y/N), issues found
 4. Rate overall: COMPLETE, PARTIAL, or INCOMPLETE
@@ -77,7 +91,7 @@ Task prompt:
 **2b. PRD validation** — `subagent_type: "product-strategist"`
 
 Task prompt:
-1. Read `docs/_project-requirements.md`
+1. Read `docs/product/requirements.md`
 2. Validate completeness against the project-planning skill's `references/project-requirements.md` quality checklist
 3. Return a structured report: section name, present (Y/N), issues found
 4. Rate overall: COMPLETE, PARTIAL, or INCOMPLETE
@@ -85,7 +99,7 @@ Task prompt:
 **2c. Backlog validation** — `subagent_type: "project-planner"`
 
 Task prompt:
-1. Read `docs/todo/_backlog.md`
+1. Read `docs/work/backlog.md`
 2. Validate completeness against the project-planning skill's quality checklist
 3. Check: Phase 0 exists, every story has AC, dependencies specified, estimates present, domain tags present
 4. Return a structured report: check name, pass (Y/N), issues found
@@ -94,7 +108,7 @@ Task prompt:
 **2d. Design suite validation** (only if design files exist) — `subagent_type: "ux-designer"`
 
 Task prompt:
-1. Read all design files: `docs/_project-design.md`, `docs/design/_wireframes.md`, `docs/design/_design.light.md`, `docs/design/_design.dark.md`, `docs/design/_mock-layout.html`
+1. Read all design files: `docs/design/spec.md`, `docs/design/wireframes.md`, `docs/design/theme.light.md`, `docs/design/theme.dark.md`, `docs/design/mock.html`
 2. Validate completeness against the ux-design skill's quality checklist
 3. Check cross-file consistency: token names match across all 5 files, WCAG compliance table present
 4. Return a structured report: file name, complete (Y/N), issues found
@@ -151,11 +165,11 @@ Never silently end on CONCERNS without either fixing the safe items or making th
 Write the full gate results to disk before reporting:
 
 ```bash
-mkdir -p docs/.output/reviews
+mkdir -p docs/.output/findings/reviews
 ```
 
 Write the complete readiness check output (all agent findings + consistency + verdict) to:
-`docs/.output/reviews/{YYMMDD-HHMM}-readiness-check.md`
+`docs/.output/findings/reviews/{YYMMDD-HHMM}-readiness-check.md`
 
 File format:
 ```markdown
@@ -170,7 +184,7 @@ File format:
 
 Stage and commit the readiness check output file:
 
-Write the commit message to `docs/.output/.commit-msg` (Write tool — no shell escaping):
+Write the commit message to `docs/.output/.state/.commit-msg` (Write tool — no shell escaping):
 
 ```
 docs: /review:check-readiness — {PASS/CONCERNS/FAIL}, {N} issues found
@@ -179,7 +193,7 @@ docs: /review:check-readiness — {PASS/CONCERNS/FAIL}, {N} issues found
 Then run:
 
 ```bash
-git add docs/.output/reviews/{YYMMDD-HHMM}-readiness-check.md
+git add docs/.output/findings/reviews/{YYMMDD-HHMM}-readiness-check.md
 node .claude/core/commit.js
 ```
 
@@ -188,22 +202,22 @@ node .claude/core/commit.js
 ```markdown
 ## Implementation Readiness Check
 
-**Output**: `docs/.output/reviews/{YYMMDD-HHMM}-readiness-check.md`
+**Output**: `docs/.output/findings/reviews/{YYMMDD-HHMM}-readiness-check.md`
 
 ### Verdict: {PASS / CONCERNS / FAIL}
 
 ### Document Status
 | Document | Exists | Complete | Rating | Issues |
 |----------|--------|----------|--------|--------|
-| _project-brief.md | {Y/N} | {Y/N} | {COMPLETE/PARTIAL/INCOMPLETE/—} | {count} |
-| _project-requirements.md | {Y/N} | {Y/N} | {agent rating} | {count} |
-| _project-design.md | {Y/N/NA} | {Y/N} | {agent rating} | {count} |
-| design/_wireframes.md | {Y/N/NA} | {Y/N} | {agent rating} | {count} |
-| design/_design.light.md | {Y/N/NA} | {Y/N} | {agent rating} | {count} |
-| design/_design.dark.md | {Y/N/NA} | {Y/N} | {agent rating} | {count} |
-| design/_mock-layout.html | {Y/N/NA} | {Y/N} | {agent rating} | {count} |
-| _project-architecture.md | {Y/N} | {Y/N} | {agent rating} | {count} |
-| _backlog.md | {Y/N} | {Y/N} | {agent rating} | {count} |
+| product/brief.md | {Y/N} | {Y/N} | {COMPLETE/PARTIAL/INCOMPLETE/—} | {count} |
+| product/requirements.md | {Y/N} | {Y/N} | {agent rating} | {count} |
+| design/spec.md | {Y/N/NA} | {Y/N} | {agent rating} | {count} |
+| design/wireframes.md | {Y/N/NA} | {Y/N} | {agent rating} | {count} |
+| design/theme.light.md | {Y/N/NA} | {Y/N} | {agent rating} | {count} |
+| design/theme.dark.md | {Y/N/NA} | {Y/N} | {agent rating} | {count} |
+| design/mock.html | {Y/N/NA} | {Y/N} | {agent rating} | {count} |
+| architecture/overview.md | {Y/N} | {Y/N} | {agent rating} | {count} |
+| backlog.md | {Y/N} | {Y/N} | {agent rating} | {count} |
 
 ### Agent Validation Details
 {For each agent that ran, include their structured findings — section-by-section breakdown}

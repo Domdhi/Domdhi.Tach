@@ -3,11 +3,15 @@ description: Investigate a bug with root cause analysis before applying fixes
 argument-hint: [error message, file path, or "last failure"]
 ---
 
+<!-- Generated from .agents/skills/investigate/references/workflow.md; edit the canonical source, then run node .claude/core/render-shared-agents.js. -->
+
 # /investigate — Root Cause Investigation
 
 Structured debugging command. Diagnoses failures with root cause analysis before attempting fixes. Four phases: Investigate, Analyze, Hypothesize, Implement.
 
 **Iron Law: NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST.**
+
+**Operating standard — investigation ends at a fix verified green, not at a writeup.** A confirmed root cause with an obvious fix is *resolved here* (Phase 6: smallest targeted fix + gate), then handed back — never dead-ended as a "want me to fix it?" report. "Resolve it or don't report it." The one legitimate read-only exit is the **3-Strike Rule** (Phase 5): three refuted hypotheses is a genuine fork — stop and ask. That is diagnosis-first *by design*, not a doctrine violation. (Commit is still the user's call — Phase 6 resolves but does not commit.) Canonical: `.claude/skills/verification-before-completion/SKILL.md`.
 
 ## Telemetry (run first)
 
@@ -38,7 +42,7 @@ IF INPUT is a file path:
 Also gather:
 - `git log --oneline -10` — what changed recently
 - `git status --short` — current state
-- Read recent agent issues from `docs/.output/agent-updates/` — the newest few day-scoped files (`{YYYY-MM-DD}.md`, sorted descending). Fall back to the legacy flat `docs/.output/agent-updates.md` if the folder is absent (pre-rotation projects).
+- Read recent agent issues from `docs/.output/evolution/agents/` — the newest few day-scoped files (`{YYYY-MM-DD}.md`, sorted descending). Fall back to the legacy flat `docs/.output/evolution/agents.md` if the folder is absent (pre-rotation projects). <!-- path-lint:keep -->
 
 ### 2. Investigate — Map the Blast Radius
 
@@ -127,7 +131,7 @@ Once root cause is confirmed:
 
 ### 7. Report
 
-Write investigation log to `docs/.output/investigations/{YYMMDD-HHMM}-{slug}.md`:
+Write investigation log to `docs/.output/findings/investigations/{YYMMDD-HHMM}-{slug}.md`:
 
 ```markdown
 ## Investigation: {error summary}
@@ -162,5 +166,5 @@ Print a summary to the conversation:
 **Root cause:** {one sentence}
 **Fix:** {applied / not applied — user to decide}
 **Prevention:** {recommendation}
-**Log:** docs/.output/investigations/{YYMMDD-HHMM}-{slug}.md
+**Log:** docs/.output/findings/investigations/{YYMMDD-HHMM}-{slug}.md
 ```

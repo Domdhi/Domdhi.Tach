@@ -1,7 +1,7 @@
 # Tach — Privacy Policy
 
 **Effective date:** 2026-06-06
-**Last updated:** 2026-06-06
+**Last updated:** 2026-10-24
 
 Tach is a free, open-source (MIT-licensed) browser extension that sets a default
 HTML5 video playback speed and gives you quick manual control. Your privacy is the
@@ -26,8 +26,8 @@ Tach saves only your **settings**, using the browser's own
 - Per-site speed presets (e.g. a remembered speed for `youtube.com`)
 - Your six custom quick-access preset speeds
 - Theme preference (light / dark / auto) and accent color
-- YouTube cleanup toggles (hide Shorts, hide comments/live chat, hide chat in
-  fullscreen, skip ads)
+- YouTube cleanup toggles (hide Shorts, comments, live chat, games/extras and sponsored tiles;
+  hide chat in fullscreen; skip ads)
 - "Include timestamps" preference for the transcript copy
 
 This data lives in your browser and is synced **by your browser** to your own

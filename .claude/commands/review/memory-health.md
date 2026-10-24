@@ -2,6 +2,8 @@
 description: Run extract (opt-in) + lint + decay health check on the memory system
 ---
 
+<!-- Generated from .agents/skills/review-memory-health/references/workflow.md; edit the canonical source, then run node .claude/core/render-shared-agents.js. -->
+
 # Memory Health Check
 
 Run the memory health pipeline (optional Sonnet extraction, lint, decay report). Suitable for headless automation via `claude -p "/review:memory-health" --model sonnet --allowedTools Bash`.
@@ -81,7 +83,7 @@ Output ONLY this line and stop:
 
 #### Full report mode
 
-If any condition above is not met, **persist before reporting:** Write the full report below to `docs/.output/reviews/{YYMMDD-HHMM}-memory-health.md`. Then display the same content in chat.
+If any condition above is not met, **persist before reporting:** Write the full report below to `docs/.output/findings/reviews/{YYMMDD-HHMM}-memory-health.md`. Then display the same content in chat.
 
 ```markdown
 ## Memory Health Report
@@ -109,7 +111,7 @@ If any condition above is not met, **persist before reporting:** Write the full 
 {- "Run `node .claude/core/memory-manager.js report` to view all memories, or `node .claude/core/memory-manager.js decay-report` to inspect stalest entries first."}
 {- "Consider archiving {archive_count} memories below 0.1 confidence using memory-manager."}
 {- "Fix lint issues: {summary of failing checks}."}
-{- "Run /review:retro to re-validate stale pattern memories from recent epics."}
+{- "Run /retro to re-validate stale pattern memories from recent epics."}
 {If nothing actionable was found beyond the silent threshold, write: "Memory system is near-healthy — monitor decay over the next few sessions."}
 ```
 

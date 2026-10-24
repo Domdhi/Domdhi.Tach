@@ -77,6 +77,21 @@ function gaugeSpeedFromFrac(frac) {
 }
 
 /**
+ * Pointer angle about the hub (math degrees, -180..180, 0 = right, 90 = up) →
+ * raw gauge speed. The dial is a top arch (180°→0°), so below the baseline
+ * (negative angles) the pointer is off the arch: pin it to the NEAREST end —
+ * left half → 180° (min), right half → 0° (max). A blanket clamp to 0° sent a
+ * drag past the left end and down to 4.0x.
+ * @param {number} angle
+ * @returns {number}
+ */
+function gaugeSpeedFromAngle(angle) {
+    if (angle < 0) angle = angle < -90 ? 180 : 0;
+    angle = Math.min(180, Math.max(0, angle));
+    return gaugeSpeedFromFrac((GAUGE_START_DEG - angle) / GAUGE_SWEEP);
+}
+
+/**
  * Angle in degrees (screen coords) for a speed value. Clockwise sweep means
  * subtracting from the start angle.
  * @param {number} v
@@ -326,6 +341,11 @@ function getPresetSpeeds(customPresets) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    // Measure the scrollbar lane body reserves (scrollbar-gutter: stable) so the
+    // CSS can shrink its right padding by exactly that much — content stays
+    // centered with or without a scrollbar. 0 under overlay scrollbars / jsdom.
+    document.documentElement.style.setProperty('--sb',
+        Math.max(0, document.body.offsetWidth - document.body.clientWidth) + 'px');
     // DOM Elements
     const speedSlider = document.getElementById('speedSlider');
     const currentSpeed = document.getElementById('currentSpeed');
@@ -761,9 +781,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             // Math-degree angle about the hub (y is down in SVG → negate dy).
             let angle = Math.atan2(-(uy - GAUGE_CY), ux - GAUGE_CX) * 180 / Math.PI;
-            angle = Math.min(180, Math.max(0, angle)); // 180° top arch: 180°→0°
-            const frac = (GAUGE_START_DEG - angle) / GAUGE_SWEEP;
-            return VSC.snapToSliderStep(gaugeSpeedFromFrac(frac));
+            return VSC.snapToSliderStep(gaugeSpeedFromAngle(angle));
         }
 
         function onMove(e) {
@@ -1150,6 +1168,6 @@ if (typeof module !== 'undefined' && module.exports) {
         getDomainFromUrl, capPerSiteMap, isValidSpeed, buildSpeedWrite,
         isYouTubeWatchUrl, decideTranscriptResult, getPresetSpeeds,
         // Gauge geometry — exported for unit tests and future coverage.
-        gaugeFrac, gaugeAngleDeg, gaugeArcPath, gaugeNeedleEnd, gaugeGateLine, gaugeCapLabel,
+        gaugeFrac, gaugeSpeedFromAngle, gaugeAngleDeg, gaugeArcPath, gaugeNeedleEnd, gaugeGateLine, gaugeCapLabel,
     };
 }
